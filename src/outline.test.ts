@@ -1,7 +1,23 @@
 // @vitest-environment jsdom
 
 import { describe, expect, it, vi } from "vitest";
-import { buildHeadingOutline, scrollHeadingIntoView } from "./outline";
+import {
+  buildHeadingOutline,
+  scrollHeadingIntoView,
+  updateOutlineStatus,
+} from "./outline";
+
+describe("updateOutlineStatus", () => {
+  /** Verifies the empty-state message stays hidden when an outline is rendered. */
+  it("hides the message when headings are available", () => {
+    const status = document.createElement("p");
+
+    updateOutlineStatus(status, true);
+
+    expect(status.hidden).toBe(true);
+    expect(status.textContent).toBe("This document has no headings.");
+  });
+});
 
 describe("buildHeadingOutline", () => {
   /** Verifies slug normalization, duplicate IDs, levels, and empty headings. */

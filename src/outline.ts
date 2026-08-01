@@ -5,6 +5,15 @@ export interface HeadingOutlineItem {
   text: string;
 }
 
+/** Updates the outline empty state to match whether headings are available. */
+export function updateOutlineStatus(
+  status: HTMLElement,
+  hasHeadings: boolean,
+): void {
+  status.hidden = hasHeadings;
+  status.textContent = "This document has no headings.";
+}
+
 /** Converts heading text into a stable URL-fragment base. */
 function headingSlug(text: string): string {
   return (

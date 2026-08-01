@@ -171,6 +171,10 @@ button:focus-visible {
   line-height: 1.4;
 }
 
+.outline-status[hidden] {
+  display: none;
+}
+
 .document-outline {
   display: grid;
   gap: 0.12rem;

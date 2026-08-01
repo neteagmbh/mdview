@@ -12,7 +12,12 @@ import {
   type EmbeddedDocumentId,
 } from "./embedded-documents";
 import { highlightCode } from "./markdown";
-import { buildHeadingOutline, scrollHeadingIntoView } from "./outline";
+import { handleDocumentScrollKey } from "./keyboard-scroll";
+import {
+  buildHeadingOutline,
+  scrollHeadingIntoView,
+  updateOutlineStatus,
+} from "./outline";
 import {
   createRecentTreeNode,
   type MarkdownTreeNode,
@@ -87,8 +92,7 @@ function showError(message: unknown): void {
 function renderDocumentOutline(): void {
   outlineNav.replaceChildren();
   const headings = markdown.hidden ? [] : buildHeadingOutline(markdown);
-  outlineStatus.hidden = headings.length > 0;
-  outlineStatus.textContent = "This document has no headings.";
+  updateOutlineStatus(outlineStatus, headings.length > 0);
 
   headings.forEach((heading) => {
     const button = document.createElement("button");
@@ -282,6 +286,11 @@ embeddedDocumentLinks.forEach((link) => {
     aboutDialog.close();
     void loadEmbeddedDocument(link.dataset.embeddedDocument as EmbeddedDocumentId);
   });
+});
+document.addEventListener("keydown", (event) => {
+  if (!aboutDialog.open) {
+    handleDocumentScrollKey(event, content);
+  }
 });
 void listen("menu-open-file", () => void chooseFile());
 void listen("menu-open-directory", () => void chooseDirectory());
