@@ -40,6 +40,35 @@ npm run tauri build
 
 Tauri applications are normally built on the operating system they target.
 
+### Signed and notarized macOS build
+
+Install a `Developer ID Application` certificate in the macOS login keychain,
+then select its identity. Configure either App Store Connect API credentials:
+
+```sh
+security find-identity -v -p codesigning
+export APPLE_SIGNING_IDENTITY="Developer ID Application: Example Company (TEAMID)"
+export APPLE_API_ISSUER="issuer-uuid"
+export APPLE_API_KEY="key-id"
+export APPLE_API_KEY_PATH="/secure/path/AuthKey_key-id.p8"
+npm run build:macos
+```
+
+Or use Apple ID credentials with an app-specific password:
+
+```sh
+export APPLE_ID="developer@example.com"
+export APPLE_PASSWORD="app-specific-password"
+export APPLE_TEAM_ID="TEAMID"
+npm run build:macos
+```
+
+The command fails before building when the signing identity or a complete
+notarization credential set is missing. Tauri signs, submits, and staples the
+generated application and DMG with hardened runtime enabled. Keep all signing
+credentials outside the repository. See the
+[Tauri macOS signing guide](https://v2.tauri.app/distribute/sign/macos/).
+
 
 ## License
 
