@@ -1,5 +1,5 @@
 use notify::RecommendedWatcher;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::{
     fs, io,
     path::{Path, PathBuf},
@@ -49,7 +49,7 @@ struct MarkdownTreeNode {
 }
 
 /// A directory in the persisted recent-folder list, together with its pin state.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RecentFolderEntry {
     /// Absolute file-system path of the folder.
@@ -254,32 +254,44 @@ fn recent_folders_path(app: &AppHandle) -> Result<PathBuf, String> {
 fn load_recent_folders(app: &AppHandle) -> Result<Vec<RecentFolderEntry>, String> {
     let path = recent_folders_path(app)?;
     match fs::read_to_string(path) {
-        Ok(json) => parse_recent_folders(&json),
+        Ok(json) => Ok(parse_recent_folders(&json)),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Vec::new()),
         Err(error) => Err(format!("Could not read recent folders: {error}")),
     }
 }
 
-/// Parses the persisted recent-folder list, migrating the legacy plain-path-array format.
+/// Parses the persisted recent-folder list, tolerating the legacy plain-path-array format,
+/// entries with a missing or malformed `pinned` field, and other unrecognized entries.
 ///
-/// Versions before pinning support stored a plain `["path", ...]` array; that format is
-/// accepted as a fallback and mapped to unpinned entries.
-fn parse_recent_folders(json: &str) -> Result<Vec<RecentFolderEntry>, String> {
-    if let Ok(entries) = serde_json::from_str::<Vec<RecentFolderEntry>>(json) {
-        return Ok(entries);
-    }
+/// If the file cannot be interpreted as a list of paths at all (e.g. corrupted or from an
+/// unrelated schema), the recent-folder list starts over empty rather than blocking the
+/// application; saving again afterwards republishes the current schema to disk.
+fn parse_recent_folders(json: &str) -> Vec<RecentFolderEntry> {
+    let Ok(raw_entries) = serde_json::from_str::<Vec<serde_json::Value>>(json) else {
+        return Vec::new();
+    };
 
-    serde_json::from_str::<Vec<PathBuf>>(json)
-        .map(|paths| {
-            paths
-                .into_iter()
-                .map(|path| RecentFolderEntry {
-                    path,
-                    pinned: false,
+    raw_entries
+        .into_iter()
+        .filter_map(|value| match value {
+            serde_json::Value::String(path) => Some(RecentFolderEntry {
+                path: PathBuf::from(path),
+                pinned: false,
+            }),
+            serde_json::Value::Object(fields) => {
+                let path = fields.get("path")?.as_str()?;
+                let pinned = fields
+                    .get("pinned")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false);
+                Some(RecentFolderEntry {
+                    path: PathBuf::from(path),
+                    pinned,
                 })
-                .collect()
+            }
+            _ => None,
         })
-        .map_err(|error| format!("Could not read recent folders: {error}"))
+        .collect()
 }
 
 /// Persists the recent-folder list in Tauri's platform app-data directory.
@@ -651,22 +663,45 @@ mod tests {
 
     /// The legacy plain-path-array format migrates to unpinned entries.
     #[test]
-    fn parses_legacy_plain_path_array_as_unpinned_entries() -> Result<(), Box<dyn std::error::Error>>
-    {
-        let entries = parse_recent_folders(r#"["/docs", "/notes"]"#)?;
+    fn parses_legacy_plain_path_array_as_unpinned_entries() {
+        let entries = parse_recent_folders(r#"["/docs", "/notes"]"#);
 
         assert_eq!(entries, vec![entry("/docs"), entry("/notes")]);
-        Ok(())
     }
 
     /// The current entry-object format round-trips, including the pin state.
     #[test]
-    fn parses_current_entry_format_with_pin_state() -> Result<(), Box<dyn std::error::Error>> {
-        let entries =
-            parse_recent_folders(r#"[{"path":"/docs","pinned":true}]"#)?;
+    fn parses_current_entry_format_with_pin_state() {
+        let entries = parse_recent_folders(r#"[{"path":"/docs","pinned":true}]"#);
 
         assert_eq!(entries, vec![pinned_entry("/docs")]);
-        Ok(())
+    }
+
+    /// A missing or malformed `pinned` field defaults to unpinned instead of failing the entry.
+    #[test]
+    fn parses_entries_with_missing_or_null_pinned_field_as_unpinned() {
+        let entries = parse_recent_folders(
+            r#"[{"path":"/docs"},{"path":"/notes","pinned":null}]"#,
+        );
+
+        assert_eq!(entries, vec![entry("/docs"), entry("/notes")]);
+    }
+
+    /// Entries without a usable `path` are skipped instead of failing the whole list.
+    #[test]
+    fn skips_individually_malformed_entries() {
+        let entries = parse_recent_folders(
+            r#"[{"pinned":true},{"path":"/docs"},42]"#,
+        );
+
+        assert_eq!(entries, vec![entry("/docs")]);
+    }
+
+    /// An unrecognized top-level shape resets to an empty list instead of failing.
+    #[test]
+    fn resets_to_an_empty_list_for_an_unrecognized_shape() {
+        assert_eq!(parse_recent_folders(r#"{"not":"a list"}"#), Vec::new());
+        assert_eq!(parse_recent_folders("not json at all"), Vec::new());
     }
 
     /// Files absent from the baseline are marked new, and the resulting `seen` set is exhaustive.

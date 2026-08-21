@@ -156,6 +156,8 @@ aktualisiert (zusammen mit der jeweiligen Jira-Transition).
 
 **Refinement (2026-08-21):** „Neu"-Marker basiert jetzt auf Datei-mtime statt Session-Diff: neu, wenn Änderung < 2h alt ODER seit dem letzten Speichern von `recent-folders.json` der Vorsession (je nachdem, was großzügiger ist). Siehe Kommentar in NT-13.
 
+**Bugfix (2026-08-21):** `recent-folders.json`-Parsing war zu strikt und konnte bei abweichenden/fehlerhaften Einträgen mit einem harten Fehler die gesamte Recent-Folder-Liste blockieren. Jetzt toleranter Parser über `serde_json::Value` (einzelne fehlerhafte Einträge werden übersprungen, unbekanntes Format → leere Liste statt Fehler). Siehe Kommentar in NT-6.
+
 ### Schritt 4.0 – Jira
 - NT-6, NT-13, NT-14: Transition „Start work" → In Arbeit.
 
