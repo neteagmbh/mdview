@@ -76,9 +76,30 @@ describe("attachContentInteractions", () => {
     };
 
     attachContentInteractions(root, handlers);
-    root.querySelector("img")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    const image = root.querySelector("img")!;
+    image.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
-    expect(handlers.openImage).toHaveBeenCalledWith("https://example.com/pic.png", "A picture");
+    expect(handlers.openImage).toHaveBeenCalledWith(image);
+  });
+
+  /** Verifies a click on a Mermaid diagram's SVG opens the popout like an image click. */
+  it("delegates Mermaid diagram clicks to openImage", () => {
+    const root = document.createElement("article");
+    root.innerHTML =
+      '<div class="mermaid-diagram"><svg><text>diagram</text></svg></div>';
+    document.body.append(root);
+    const handlers = {
+      getCurrentPath: () => null,
+      openInternalLink: vi.fn(),
+      openExternalLink: vi.fn(),
+      openImage: vi.fn(),
+    };
+
+    attachContentInteractions(root, handlers);
+    const svg = root.querySelector("svg")!;
+    svg.querySelector("text")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    expect(handlers.openImage).toHaveBeenCalledWith(svg);
   });
 
   /** Verifies an external link click is intercepted and routed to openExternalLink. */

@@ -12,6 +12,7 @@ Upstream source links provide the applicable license and copyright notices.
 | --- | --- | --- | --- |
 | `@tauri-apps/api` | 2.11.1 | Apache-2.0 OR MIT | [tauri-apps/tauri](https://github.com/tauri-apps/tauri) |
 | `@tauri-apps/plugin-dialog` | 2.7.2 | MIT OR Apache-2.0 | [tauri-apps/plugins-workspace](https://github.com/tauri-apps/plugins-workspace) |
+| `@tauri-apps/plugin-opener` | 2.5.4 | MIT OR Apache-2.0 | [tauri-apps/plugins-workspace](https://github.com/tauri-apps/plugins-workspace) |
 | `dompurify` | 3.4.12 | MPL-2.0 OR Apache-2.0 | [cure53/DOMPurify](https://github.com/cure53/DOMPurify) |
 | `highlight.js` | 11.11.1 | BSD-3-Clause | [highlightjs/highlight.js](https://github.com/highlightjs/highlight.js) |
 | `marked` | 16.4.2 | MIT | [markedjs/marked](https://github.com/markedjs/marked) |
@@ -24,9 +25,11 @@ Upstream source links provide the applicable license and copyright notices.
 | --- | --- | --- | --- |
 | `serde` | 1.0.229 | MIT OR Apache-2.0 | [serde-rs/serde](https://github.com/serde-rs/serde) |
 | `serde_json` | 1.0.151 | MIT OR Apache-2.0 | [serde-rs/json](https://github.com/serde-rs/json) |
+| `notify` | 8.2.0 | CC0-1.0 | [notify-rs/notify](https://github.com/notify-rs/notify) |
 | `tauri` | 2.11.5 | Apache-2.0 OR MIT | [tauri-apps/tauri](https://github.com/tauri-apps/tauri) |
 | `tauri-build` | 2.6.3 | Apache-2.0 OR MIT | [tauri-apps/tauri](https://github.com/tauri-apps/tauri) |
 | `tauri-plugin-dialog` | 2.7.2 | Apache-2.0 OR MIT | [tauri-apps/plugins-workspace](https://github.com/tauri-apps/plugins-workspace) |
+| `tauri-plugin-opener` | 2.5.4 | Apache-2.0 OR MIT | [tauri-apps/plugins-workspace](https://github.com/tauri-apps/plugins-workspace) |
 
 ## Development-only libraries
 

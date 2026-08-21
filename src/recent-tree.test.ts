@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createRecentTreeNode,
   type MarkdownTreeNode,
+  sortPinnedFirst,
   updateRecentTreeActivePath,
 } from "./recent-tree";
 
@@ -14,11 +15,15 @@ describe("createRecentTreeNode", () => {
       name: "docs",
       path: "/docs",
       isDirectory: true,
+      isNew: false,
+      pinned: false,
       children: [
         {
           name: "guides",
           path: "/docs/guides",
           isDirectory: true,
+          isNew: false,
+          pinned: false,
           children: [],
         },
       ],
@@ -31,6 +36,7 @@ describe("createRecentTreeNode", () => {
         folderOpenState: new Map(),
         openFile: vi.fn(),
         removeFolder,
+        pinFolder: vi.fn(),
       },
       true,
     );
@@ -41,20 +47,58 @@ describe("createRecentTreeNode", () => {
     expect(removeFolder).toHaveBeenCalledWith("/docs", expect.any(HTMLButtonElement));
   });
 
-  /** Verifies active-file accessibility state and click routing. */
-  it("routes file clicks and marks the active file", () => {
+  /** Verifies the pin control reflects and toggles the folder's pin state. */
+  it("toggles the pin state of a recent-folder root", () => {
+    const node: MarkdownTreeNode = {
+      name: "docs",
+      path: "/docs",
+      isDirectory: true,
+      isNew: false,
+      pinned: false,
+      children: [],
+    };
+    const pinFolder = vi.fn();
+    const root = createRecentTreeNode(
+      node,
+      {
+        activePath: null,
+        folderOpenState: new Map(),
+        openFile: vi.fn(),
+        removeFolder: vi.fn(),
+        pinFolder,
+      },
+      true,
+    );
+
+    const pinButton = root.querySelector<HTMLButtonElement>(".pin-folder-button")!;
+    expect(pinButton.getAttribute("aria-pressed")).toBe("false");
+    pinButton.click();
+    expect(pinFolder).toHaveBeenCalledWith("/docs", true, pinButton);
+  });
+
+  /** Verifies active-file accessibility state, click routing, and the new-document badge. */
+  it("routes file clicks, marks the active file, and shows a new-document badge", () => {
     const openFile = vi.fn();
     const file = createRecentTreeNode(
-      { name: "README.md", path: "/docs/README.md", isDirectory: false, children: [] },
+      {
+        name: "README.md",
+        path: "/docs/README.md",
+        isDirectory: false,
+        isNew: true,
+        pinned: false,
+        children: [],
+      },
       {
         activePath: "/docs/README.md",
         folderOpenState: new Map(),
         openFile,
         removeFolder: vi.fn(),
+        pinFolder: vi.fn(),
       },
     ) as HTMLButtonElement;
 
     expect(file.getAttribute("aria-current")).toBe("page");
+    expect(file.querySelector(".tree-file-new-badge")).not.toBeNull();
     file.click();
     expect(openFile).toHaveBeenCalledWith("/docs/README.md");
   });
@@ -65,11 +109,15 @@ describe("createRecentTreeNode", () => {
       name: "docs",
       path: "/docs",
       isDirectory: true,
+      isNew: false,
+      pinned: false,
       children: [
         {
           name: "guides",
           path: "/docs/guides",
           isDirectory: true,
+          isNew: false,
+          pinned: false,
           children: [],
         },
       ],
@@ -80,6 +128,7 @@ describe("createRecentTreeNode", () => {
       folderOpenState,
       openFile: vi.fn(),
       removeFolder: vi.fn(),
+      pinFolder: vi.fn(),
     };
 
     const firstRoot = createRecentTreeNode(node, actions, true);
@@ -108,5 +157,23 @@ describe("createRecentTreeNode", () => {
 
     expect(root.querySelectorAll('[aria-current="page"]')).toHaveLength(0);
     expect(root.children).toHaveLength(2);
+  });
+});
+
+describe("sortPinnedFirst", () => {
+  /** Verifies pinned folders move to the front while preserving relative order otherwise. */
+  it("orders pinned folders before unpinned ones without reordering within each group", () => {
+    const folder = (name: string, pinned: boolean): MarkdownTreeNode => ({
+      name,
+      path: `/${name}`,
+      isDirectory: true,
+      isNew: false,
+      pinned,
+      children: [],
+    });
+    const folders = [folder("a", false), folder("b", true), folder("c", false), folder("d", true)];
+
+    expect(sortPinnedFirst(folders).map((entry) => entry.name)).toEqual(["b", "d", "a", "c"]);
+    expect(folders.map((entry) => entry.name)).toEqual(["a", "b", "c", "d"]);
   });
 });

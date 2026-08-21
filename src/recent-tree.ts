@@ -2,6 +2,8 @@ export interface MarkdownTreeNode {
   name: string;
   path: string;
   isDirectory: boolean;
+  isNew: boolean;
+  pinned: boolean;
   children: MarkdownTreeNode[];
 }
 
@@ -10,6 +12,12 @@ export interface RecentTreeActions {
   folderOpenState: Map<string, boolean>;
   openFile: (path: string) => void;
   removeFolder: (path: string, trigger: HTMLButtonElement) => void | Promise<void>;
+  pinFolder: (path: string, pinned: boolean, trigger: HTMLButtonElement) => void | Promise<void>;
+}
+
+/** Returns a new array with pinned recent-folder roots ordered before unpinned ones. */
+export function sortPinnedFirst(folders: MarkdownTreeNode[]): MarkdownTreeNode[] {
+  return [...folders].sort((a, b) => Number(b.pinned) - Number(a.pinned));
 }
 
 /** Updates the active-file marker without rebuilding or changing the tree. */
@@ -38,7 +46,7 @@ function appendChildren(
   });
 }
 
-/** Creates a removable top-level entry for a recent folder. */
+/** Creates a removable, pinnable top-level entry for a recent folder. */
 function createRootNode(node: MarkdownTreeNode, actions: RecentTreeActions): HTMLElement {
   const root = document.createElement("div");
   root.className = "tree-root-entry";
@@ -53,6 +61,19 @@ function createRootNode(node: MarkdownTreeNode, actions: RecentTreeActions): HTM
   toggle.title = node.path;
   const isOpen = actions.folderOpenState.get(node.path) ?? true;
   toggle.setAttribute("aria-expanded", String(isOpen));
+
+  const pin = document.createElement("button");
+  pin.type = "button";
+  pin.className = "pin-folder-button";
+  pin.classList.toggle("pinned", node.pinned);
+  pin.title = node.pinned ? `Unpin ${node.name}` : `Pin ${node.name}`;
+  pin.setAttribute("aria-label", pin.title);
+  pin.setAttribute("aria-pressed", String(node.pinned));
+  pin.innerHTML = `
+    <svg aria-hidden="true" viewBox="0 0 20 20">
+      <path d="M10 2.5v4M6 9.5h8l-1.3 3.2H7.3zM10 12.7V17.5" />
+    </svg>
+  `;
 
   const remove = document.createElement("button");
   remove.type = "button";
@@ -76,11 +97,14 @@ function createRootNode(node: MarkdownTreeNode, actions: RecentTreeActions): HTM
     actions.folderOpenState.set(node.path, open);
     toggle.setAttribute("aria-expanded", String(open));
   });
+  pin.addEventListener("click", () => {
+    void actions.pinFolder(node.path, !node.pinned, pin);
+  });
   remove.addEventListener("click", () => {
     void actions.removeFolder(node.path, remove);
   });
 
-  row.append(toggle, remove);
+  row.append(toggle, pin, remove);
   root.append(row, children);
   return root;
 }
@@ -118,10 +142,21 @@ export function createRecentTreeNode(
   const button = document.createElement("button");
   button.type = "button";
   button.className = "tree-file";
-  button.textContent = node.name;
   button.title = node.path;
   button.dataset.path = node.path;
   button.setAttribute("aria-current", node.path === actions.activePath ? "page" : "false");
   button.addEventListener("click", () => actions.openFile(node.path));
+
+  const label = document.createElement("span");
+  label.textContent = node.name;
+  button.append(label);
+
+  if (node.isNew) {
+    const badge = document.createElement("span");
+    badge.className = "tree-file-new-badge";
+    badge.textContent = "New";
+    button.append(badge);
+  }
+
   return button;
 }

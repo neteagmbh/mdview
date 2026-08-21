@@ -45,8 +45,8 @@ aktualisiert (zusammen mit der jeweiligen Jira-Transition).
 |---|---|---|---|
 | 1 – Quick Wins | NT-5, NT-9 | ✅ Fertig | 2026-08-21 |
 | 2 – Content-Interaktionsschicht | NT-4, NT-10 | ✅ Fertig | 2026-08-21 |
-| 3 – Layout-Fundament | NT-7 | 🔲 Nicht begonnen | – |
-| 4 – Recent Folders v2 | NT-6, NT-13, NT-14 | 🔲 Nicht begonnen | – |
+| 3 – Layout-Fundament | NT-7 | ✅ Fertig | 2026-08-21 |
+| 4 – Recent Folders v2 | NT-6, NT-13, NT-14 | ✅ Fertig | 2026-08-21 |
 | 5 – Suche | NT-8 | 🔲 Nicht begonnen | – |
 | 6 – Druck/PDF-Export | NT-12 | 🔲 Nicht begonnen | – |
 | 7 – iOS/iCloud | NT-11 | 🔲 Nicht begonnen | – |
@@ -56,6 +56,8 @@ aktualisiert (zusammen mit der jeweiligen Jira-Transition).
 ## Phase 1 – Quick Wins (NT-5, NT-9)
 
 **Status:** ✅ Fertig (2026-08-21) – `src/clipboard-styles.ts`, Toolbar-Button in `index.html`/`main.ts`, Tests grün, Jira auf „Fertig"
+
+**Nachtrag (2026-08-21):** Kopierte Mermaid-Diagramme werden jetzt als eingebettetes PNG (gerastert via `diagramToPngDataUrl` in `src/diagrams.ts`) statt als reiner SVG-Text kopiert; das Clipboard-PNG wird zusätzlich unabhängig vom Anzeigemodus immer im Light-Theme gerendert (`cacheClipboardImages`). Siehe Kommentare in NT-9.
 
 ### Schritt 1.0 – Jira
 - NT-5 und NT-9: Transition „Start work" → In Arbeit.
@@ -86,6 +88,12 @@ aktualisiert (zusammen mit der jeweiligen Jira-Transition).
 ## Phase 2 – Content-Interaktionsschicht (NT-4, NT-10)
 
 **Status:** ✅ Fertig (2026-08-21) – `src/content-interactions.ts`, Back-Button + Link-Status + Image-Popout in `index.html`/`main.ts`, `@tauri-apps/plugin-opener`/`tauri-plugin-opener` eingebunden, Tests/Clippy grün, Jira auf „Fertig"
+
+**Nachtrag (2026-08-21):** Popout erweitert um Mermaid-Diagramm-Support, Zoom (Stufen + Ctrl-Mausrad), natives Mausrad-Scrollen und eine schwebende Zoom-/Schließen-Toolbar; neues Modul `src/image-popout.ts`. Siehe Kommentar in NT-10.
+
+**Bugfix (2026-08-21):** Zoom stoppte visuell, sobald der Viewport ausgefüllt war (Flex-Item wurde durch Default-`flex-shrink` zurückgeschrumpft). Fix: `flex: none` auf dem gezoomten Element + `safe center`-Alignment in `styles.css`, damit das Popout in alle Richtungen scrollt statt zu klemmen.
+
+**Refinement (2026-08-21):** Zoom-Berechnung überarbeitet – 100% = tatsächliche Rendergröße im Dokument (inkl. Dokument-Zoomfaktor), dadurch strikt monoton (150% > 100%). Icon-Schritt 25 Punkte, Strg+Mausrad-Schritt 5 Punkte. Öffnen zeigt den echten Fit-Zoom-Prozentwert statt immer „100%". Siehe Kommentar in NT-10.
 
 ### Schritt 2.0 – Jira
 - NT-4, NT-10: Transition „Start work" → In Arbeit.
@@ -119,7 +127,7 @@ aktualisiert (zusammen mit der jeweiligen Jira-Transition).
 
 ## Phase 3 – Layout-Fundament (NT-7)
 
-**Status:** 🔲 Nicht begonnen
+**Status:** ✅ Fertig (2026-08-21) – CSS-Custom-Properties + `src/sidebar-resize.ts` + Drag-Handles, Breakpoints konsolidiert, Tests grün, Jira auf „Fertig"
 
 ### Schritt 3.0 – Jira
 - NT-7: Transition „Start work" → In Arbeit.
@@ -144,7 +152,9 @@ aktualisiert (zusammen mit der jeweiligen Jira-Transition).
 
 ## Phase 4 – „Recent Folders v2" (NT-6, NT-13, NT-14)
 
-**Status:** 🔲 Nicht begonnen
+**Status:** ✅ Fertig (2026-08-21) – Schema-Migration (`RecentFolderEntry`), Pin-Feature, `src-tauri/src/watcher.rs` (notify-Crate, debounced), In-Memory-Baseline-Diff für „neu"-Marker, `read_markdown_file` + Auto-Reload; Tests/Clippy grün, Jira auf „Fertig"
+
+**Refinement (2026-08-21):** „Neu"-Marker basiert jetzt auf Datei-mtime statt Session-Diff: neu, wenn Änderung < 2h alt ODER seit dem letzten Speichern von `recent-folders.json` der Vorsession (je nachdem, was großzügiger ist). Siehe Kommentar in NT-13.
 
 ### Schritt 4.0 – Jira
 - NT-6, NT-13, NT-14: Transition „Start work" → In Arbeit.

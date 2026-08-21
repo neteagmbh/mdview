@@ -10,12 +10,10 @@ import appIconUrl from "../assets/icon-master.png";
 import { buildLightModeClipboardHtml } from "./clipboard-styles";
 import { attachContentInteractions } from "./content-interactions";
 import { renderMermaidDiagrams } from "./diagrams";
-import {
-  getEmbeddedDocument,
-  type EmbeddedDocumentId,
-} from "./embedded-documents";
+import { getEmbeddedDocument, type EmbeddedDocumentId } from "./embedded-documents";
 import { highlightCode } from "./markdown";
 import { handleDocumentScrollKey } from "./keyboard-scroll";
+import { createImagePopoutController } from "./image-popout";
 import {
   buildHeadingOutline,
   scrollHeadingIntoView,
@@ -24,8 +22,10 @@ import {
 import {
   createRecentTreeNode,
   type MarkdownTreeNode,
+  sortPinnedFirst,
   updateRecentTreeActivePath,
 } from "./recent-tree";
+import { attachSidebarResize } from "./sidebar-resize";
 import { stepZoom, ZOOM_LEVELS, zoomFactor, zoomLabel } from "./zoom";
 import "./styles.css";
 
@@ -49,6 +49,11 @@ const outlineToggle = document.querySelector<HTMLButtonElement>("#outline-toggle
 const fileName = document.querySelector<HTMLElement>("#file-name")!;
 const linkStatus = document.querySelector<HTMLElement>("#link-status")!;
 const appShell = document.querySelector<HTMLElement>(".app-shell")!;
+const sidebar = document.querySelector<HTMLElement>("#sidebar")!;
+const sidebarResizeHandle =
+  document.querySelector<HTMLElement>("#sidebar-resize-handle")!;
+const outlineResizeHandle =
+  document.querySelector<HTMLElement>("#outline-resize-handle")!;
 const tree = document.querySelector<HTMLElement>("#recent-tree")!;
 const treeStatus = document.querySelector<HTMLElement>("#tree-status")!;
 const outlineSidebar = document.querySelector<HTMLElement>("#outline-sidebar")!;
@@ -62,13 +67,28 @@ const dropOverlay = document.querySelector<HTMLElement>("#drop-overlay")!;
 const aboutDialog = document.querySelector<HTMLDialogElement>("#about-dialog")!;
 const aboutIcon = document.querySelector<HTMLImageElement>("#about-icon")!;
 const imagePopout = document.querySelector<HTMLElement>("#image-popout")!;
-const imagePopoutImage =
-  document.querySelector<HTMLImageElement>("#image-popout-image")!;
+const imagePopoutContent =
+  document.querySelector<HTMLElement>("#image-popout-content")!;
+const imagePopoutZoomOut =
+  document.querySelector<HTMLButtonElement>("#image-popout-zoom-out")!;
+const imagePopoutZoomReset =
+  document.querySelector<HTMLButtonElement>("#image-popout-zoom-reset")!;
+const imagePopoutZoomIn =
+  document.querySelector<HTMLButtonElement>("#image-popout-zoom-in")!;
 const imagePopoutClose =
   document.querySelector<HTMLButtonElement>("#image-popout-close")!;
 const embeddedDocumentLinks = document.querySelectorAll<HTMLAnchorElement>(
   "[data-embedded-document]",
 );
+
+const imagePopoutController = createImagePopoutController({
+  overlay: imagePopout,
+  content: imagePopoutContent,
+  zoomInButton: imagePopoutZoomIn,
+  zoomOutButton: imagePopoutZoomOut,
+  zoomResetButton: imagePopoutZoomReset,
+  closeButton: imagePopoutClose,
+});
 
 let activePath: string | null = null;
 let currentZoom = 100;
@@ -166,19 +186,6 @@ async function navigateBack(): Promise<void> {
   }
 }
 
-/** Displays an image from the document in a full-window popout overlay. */
-function openImagePopout(src: string, alt: string): void {
-  imagePopoutImage.src = src;
-  imagePopoutImage.alt = alt;
-  imagePopout.hidden = false;
-  imagePopoutClose.focus();
-}
-
-/** Closes the image popout overlay and releases the displayed image. */
-function closeImagePopout(): void {
-  imagePopout.hidden = true;
-  imagePopoutImage.src = "";
-}
 
 /** Applies a document-only zoom level and updates toolbar controls. */
 function applyZoom(level: number): void {
@@ -195,7 +202,7 @@ function renderRecentTree(folders: MarkdownTreeNode[]): void {
   tree.replaceChildren();
   treeStatus.hidden = folders.length > 0;
   treeStatus.textContent = "Open a Markdown file to add its folder.";
-  folders.forEach((folder) => {
+  sortPinnedFirst(folders).forEach((folder) => {
     tree.append(
       createRecentTreeNode(
         folder,
@@ -204,6 +211,7 @@ function renderRecentTree(folders: MarkdownTreeNode[]): void {
           folderOpenState: recentFolderOpenState,
           openFile: (path) => void loadFile(path),
           removeFolder: removeRecentFolder,
+          pinFolder: setFolderPinned,
         },
         true,
       ),
@@ -267,6 +275,27 @@ async function removeRecentFolder(path: string, trigger: HTMLButtonElement): Pro
   }
 }
 
+/** Pins or unpins a recent-folder entry and refreshes the persisted tree. */
+async function setFolderPinned(
+  path: string,
+  pinned: boolean,
+  trigger: HTMLButtonElement,
+): Promise<void> {
+  trigger.disabled = true;
+  try {
+    const folders = await invoke<MarkdownTreeNode[]>("set_recent_folder_pinned", {
+      path,
+      pinned,
+    });
+    renderRecentTree(folders);
+  } catch (pinError) {
+    treeStatus.hidden = false;
+    treeStatus.textContent = pinError instanceof Error ? pinError.message : String(pinError);
+  } finally {
+    trigger.disabled = false;
+  }
+}
+
 /** Reloads the recent-folder tree from the native backend. */
 async function refreshRecentTree(): Promise<void> {
   refreshButton.disabled = true;
@@ -291,6 +320,25 @@ async function loadFile(path: string): Promise<void> {
     renderRecentTree(document.recentFolders);
   } catch (loadError) {
     showError(loadError);
+  }
+}
+
+/**
+ * Re-reads the currently open document from disk and re-renders it, preserving scroll position.
+ *
+ * mdview is a read-only viewer, so there is no unsaved local state to reconcile with the change.
+ */
+async function reloadActiveDocument(): Promise<void> {
+  if (!activePath) {
+    return;
+  }
+  const scrollPosition = { top: content.scrollTop, left: content.scrollLeft };
+  try {
+    const source = await invoke<string>("read_markdown_file", { path: activePath });
+    await renderMarkdownSource(source, basename(activePath), activePath);
+    content.scrollTo(scrollPosition);
+  } catch (reloadError) {
+    showError(reloadError);
   }
 }
 
@@ -365,26 +413,15 @@ embeddedDocumentLinks.forEach((link) => {
   });
 });
 document.addEventListener("keydown", (event) => {
-  if (!imagePopout.hidden && event.key === "Escape") {
-    event.preventDefault();
-    closeImagePopout();
-    return;
-  }
   if (!aboutDialog.open) {
     handleDocumentScrollKey(event, content);
-  }
-});
-imagePopoutClose.addEventListener("click", () => closeImagePopout());
-imagePopout.addEventListener("click", (event) => {
-  if (event.target === imagePopout) {
-    closeImagePopout();
   }
 });
 attachContentInteractions(markdown, {
   getCurrentPath: () => activePath,
   openInternalLink: (path, fragment) => void openInternalLink(path, fragment),
   openExternalLink,
-  openImage: openImagePopout,
+  openImage: (element) => imagePopoutController.open(element),
 });
 markdown.addEventListener("copy", (event) => {
   const selection = window.getSelection();
@@ -399,6 +436,13 @@ markdown.addEventListener("copy", (event) => {
 void listen("menu-open-file", () => void chooseFile());
 void listen("menu-open-directory", () => void chooseDirectory());
 void listen("menu-about", showAboutDialog);
+void listen<{ paths: string[] }>("watched-path-changed", (event) => {
+  const { paths } = event.payload;
+  if (activePath && paths.includes(activePath)) {
+    void reloadActiveDocument();
+  }
+  void refreshRecentTree();
+});
 
 void getCurrentWebview().onDragDropEvent((event) => {
   if (event.payload.type === "over") {
@@ -417,3 +461,19 @@ void getCurrentWebview().onDragDropEvent((event) => {
 void refreshRecentTree();
 applyZoom(100);
 aboutIcon.src = appIconUrl;
+attachSidebarResize({
+  handle: sidebarResizeHandle,
+  target: appShell,
+  cssVariable: "--sidebar-width",
+  bounds: { min: 200, max: 480 },
+  direction: "grow-right",
+  getCurrentWidth: () => sidebar.getBoundingClientRect().width,
+});
+attachSidebarResize({
+  handle: outlineResizeHandle,
+  target: appShell,
+  cssVariable: "--outline-width",
+  bounds: { min: 200, max: 420 },
+  direction: "grow-left",
+  getCurrentWidth: () => outlineSidebar.getBoundingClientRect().width,
+});

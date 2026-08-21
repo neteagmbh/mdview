@@ -66,7 +66,7 @@
       </button>
     </header>
     <div class="app-shell">
-      <aside class="sidebar" aria-label="Recent Markdown folders">
+      <aside id="sidebar" class="sidebar" aria-label="Recent Markdown folders">
         <div class="sidebar-header">
           <h2>Recent folders</h2>
           <button id="refresh-button" class="icon-button" type="button" title="Refresh folders">
@@ -75,6 +75,14 @@
         </div>
         <p id="tree-status" class="tree-status">Loading recent folders…</p>
         <nav id="recent-tree" class="recent-tree" aria-label="Markdown files"></nav>
+        <div
+          id="sidebar-resize-handle"
+          class="resize-handle sidebar-resize-handle"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize recent folders sidebar"
+          tabindex="0"
+        ></div>
       </aside>
       <main id="content" class="content" tabindex="-1">
         <section id="welcome" class="welcome">
@@ -86,6 +94,14 @@
         <section id="error" class="error" hidden aria-live="polite"></section>
       </main>
       <aside id="outline-sidebar" class="outline-sidebar" aria-label="Document outline">
+        <div
+          id="outline-resize-handle"
+          class="resize-handle outline-resize-handle"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize document outline sidebar"
+          tabindex="0"
+        ></div>
         <div class="sidebar-header">
           <h2>On this page</h2>
         </div>
@@ -106,13 +122,47 @@
       aria-modal="true"
       aria-label="Image preview"
     >
-      <button id="image-popout-close" class="icon-button image-popout-close" type="button" title="Close (Esc)">
-        <svg aria-hidden="true" viewBox="0 0 20 20">
-          <path d="M5 5l10 10M15 5 5 15" />
-        </svg>
-        <span class="visually-hidden">Close image preview</span>
-      </button>
-      <img id="image-popout-image" class="image-popout-image" alt="" />
+      <div class="image-popout-toolbar">
+        <button
+          id="image-popout-zoom-out"
+          class="icon-button toolbar-icon"
+          type="button"
+          title="Zoom out"
+        >
+          <svg aria-hidden="true" viewBox="0 0 20 20">
+            <circle cx="8.5" cy="8.5" r="5" />
+            <path d="M12.2 12.2 17 17M6 8.5h5" />
+          </svg>
+          <span class="visually-hidden">Zoom out</span>
+        </button>
+        <button id="image-popout-zoom-reset" class="zoom-reset" type="button" title="Reset zoom">
+          100%
+        </button>
+        <button
+          id="image-popout-zoom-in"
+          class="icon-button toolbar-icon"
+          type="button"
+          title="Zoom in"
+        >
+          <svg aria-hidden="true" viewBox="0 0 20 20">
+            <circle cx="8.5" cy="8.5" r="5" />
+            <path d="M12.2 12.2 17 17M6 8.5h5M8.5 6v5" />
+          </svg>
+          <span class="visually-hidden">Zoom in</span>
+        </button>
+        <button
+          id="image-popout-close"
+          class="icon-button toolbar-icon"
+          type="button"
+          title="Close (Esc)"
+        >
+          <svg aria-hidden="true" viewBox="0 0 20 20">
+            <path d="M5 5l10 10M15 5 5 15" />
+          </svg>
+          <span class="visually-hidden">Close image preview</span>
+        </button>
+      </div>
+      <div id="image-popout-content" class="image-popout-content"></div>
     </div>
     <dialog id="about-dialog" class="about-dialog" aria-labelledby="about-title">
       <div class="about-header">

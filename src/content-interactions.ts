@@ -64,7 +64,7 @@ export interface ContentInteractionHandlers {
   getCurrentPath: () => string | null;
   openInternalLink: (path: string, fragment: string | null) => void;
   openExternalLink: (url: string) => void;
-  openImage: (src: string, alt: string) => void;
+  openImage: (element: HTMLImageElement | SVGSVGElement) => void;
 }
 
 /** Delegates clicks on links and images inside a rendered Markdown root to the given handlers. */
@@ -80,7 +80,14 @@ export function attachContentInteractions(
     const image = event.target.closest("img");
     if (image && root.contains(image)) {
       event.preventDefault();
-      handlers.openImage(image.src, image.alt);
+      handlers.openImage(image);
+      return;
+    }
+
+    const diagram = event.target.closest(".mermaid-diagram svg");
+    if (diagram && root.contains(diagram)) {
+      event.preventDefault();
+      handlers.openImage(diagram as unknown as SVGSVGElement);
       return;
     }
 

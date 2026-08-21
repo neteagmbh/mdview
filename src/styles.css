@@ -109,12 +109,12 @@ button:focus-visible {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr) 240px;
+  grid-template-columns: var(--sidebar-width, 260px) minmax(0, 1fr) var(--outline-width, 240px);
   min-height: calc(100vh - 54px);
 }
 
 .app-shell.outline-closed {
-  grid-template-columns: 260px minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-width, 260px) minmax(0, 1fr);
 }
 
 .sidebar {
@@ -135,6 +135,30 @@ button:focus-visible {
   padding: 1rem 0.7rem;
   border-left: 1px solid #dfe2e7;
   background: #fff;
+}
+
+.resize-handle {
+  position: absolute;
+  top: 0;
+  z-index: 5;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  background: transparent;
+  touch-action: none;
+}
+
+.resize-handle:hover,
+.resize-handle.resizing {
+  background: rgb(50 103 214 / 35%);
+}
+
+.sidebar-resize-handle {
+  right: -3px;
+}
+
+.outline-resize-handle {
+  left: -3px;
 }
 
 .sidebar-header {
@@ -293,6 +317,39 @@ button:focus-visible {
   background: #fff0f0;
 }
 
+.pin-folder-button {
+  flex: none;
+  width: 1.7rem;
+  height: 1.7rem;
+  padding: 0.28rem;
+  border: 0;
+  color: #777d87;
+  background: transparent;
+}
+
+.pin-folder-button svg {
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentcolor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.4;
+}
+
+.pin-folder-button:hover {
+  color: #3267d6;
+  background: #f2f6ff;
+}
+
+.pin-folder-button.pinned {
+  color: #b9820a;
+}
+
+.pin-folder-button.pinned svg {
+  fill: currentcolor;
+}
+
 .tree-root-children {
   margin-left: 0.7rem;
 }
@@ -304,25 +361,44 @@ button:focus-visible {
 }
 
 .tree-file {
-  display: block;
-  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
   width: 100%;
   margin: 0.08rem 0;
   padding: 0.32rem 0.4rem;
   border: 0;
   border-radius: 5px;
   text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   background: transparent;
   font-size: 0.82rem;
   font-weight: 400;
 }
 
+.tree-file > span:first-child {
+  overflow: hidden;
+  flex: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .tree-file::before {
   content: "◇";
+  flex: none;
   margin-right: 0.35rem;
   color: #778199;
+}
+
+.tree-file-new-badge {
+  flex: none;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  color: #fff;
+  background: #2f7d3c;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
 }
 
 .tree-file[aria-current="page"] {
@@ -390,6 +466,7 @@ button:focus-visible {
 .mermaid-diagram svg {
   max-width: 100%;
   height: auto;
+  cursor: zoom-in;
 }
 
 .mermaid-error {
@@ -431,6 +508,7 @@ button:focus-visible {
 
 .markdown-body img {
   max-width: 100%;
+  cursor: zoom-in;
 }
 
 .markdown-body blockquote {
@@ -562,9 +640,7 @@ button:focus-visible {
   position: fixed;
   z-index: 100;
   inset: 0;
-  display: grid;
-  place-items: center;
-  padding: 2rem;
+  overflow: auto;
   background: rgb(10 12 16 / 82%);
 }
 
@@ -572,23 +648,54 @@ button:focus-visible {
   display: none;
 }
 
-.image-popout-image {
+.image-popout-content {
+  display: flex;
+  box-sizing: border-box;
+  min-width: 100%;
+  min-height: 100%;
+  padding: 2rem;
+  align-items: center;
+  align-items: safe center;
+  justify-content: center;
+  justify-content: safe center;
+}
+
+.image-popout-content > * {
+  display: block;
+  flex: none;
   max-width: 100%;
   max-height: 100%;
   border-radius: 8px;
   box-shadow: 0 24px 70px rgb(0 0 0 / 45%);
 }
 
-.image-popout-close {
+.image-popout-toolbar {
   position: fixed;
+  z-index: 101;
   top: 1rem;
   right: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem;
+  border-radius: 10px;
+  background: rgb(20 22 28 / 55%);
+  backdrop-filter: blur(6px);
+}
+
+.image-popout-toolbar .icon-button,
+.image-popout-toolbar .zoom-reset {
+  border: 0;
   color: #fff;
   background: rgb(255 255 255 / 12%);
 }
 
-.image-popout-close:hover {
+.image-popout-toolbar .icon-button:hover {
   background: rgb(255 255 255 / 22%);
+}
+
+.image-popout-toolbar .zoom-reset {
+  min-width: 3.5rem;
 }
 
 .about-dialog {
@@ -645,10 +752,6 @@ button:focus-visible {
 }
 
 @media (max-width: 640px) {
-  .app-shell {
-    grid-template-columns: 190px minmax(0, 1fr);
-  }
-
   .content {
     width: calc(100% - 1rem);
     padding: 0;
@@ -677,6 +780,10 @@ button:focus-visible {
     right: 0;
     width: 240px;
     box-shadow: -8px 0 24px rgb(28 35 48 / 12%);
+  }
+
+  .resize-handle {
+    display: none;
   }
 }
 

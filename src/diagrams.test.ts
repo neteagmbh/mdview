@@ -1,7 +1,36 @@
 // @vitest-environment jsdom
 
 import { describe, expect, it, vi } from "vitest";
-import { renderMermaidDiagrams } from "./diagrams";
+import { diagramToPngDataUrl, renderMermaidDiagrams } from "./diagrams";
+
+describe("diagramToPngDataUrl", () => {
+  /** Verifies the diagram's viewBox size and an SVG data URL are passed to the renderer. */
+  it("measures the SVG from its viewBox and forwards an svg+xml data URL", async () => {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 320 200");
+    svg.innerHTML = "<text>diagram</text>";
+    const render = vi.fn().mockResolvedValue("data:image/png;base64,fake");
+
+    const result = await diagramToPngDataUrl(svg, render);
+
+    expect(result).toBe("data:image/png;base64,fake");
+    expect(render).toHaveBeenCalledWith(
+      expect.stringContaining("data:image/svg+xml;charset=utf-8,"),
+      320,
+      200,
+    );
+  });
+
+  /** Verifies a missing/empty viewBox falls back to a fixed default size. */
+  it("falls back to a default size when no viewBox is present", async () => {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    const render = vi.fn().mockResolvedValue("data:image/png;base64,fake");
+
+    await diagramToPngDataUrl(svg, render);
+
+    expect(render).toHaveBeenCalledWith(expect.any(String), 800, 600);
+  });
+});
 
 describe("renderMermaidDiagrams", () => {
   /** Verifies that lazy loading is skipped when no Mermaid fence exists. */
@@ -24,14 +53,17 @@ describe("renderMermaidDiagrams", () => {
       render: vi.fn().mockResolvedValue({ svg: "<svg><text>diagram</text></svg>" }),
     };
     const sanitize = vi.fn((svg: string) => svg);
+    const renderClipboardImage = vi.fn().mockResolvedValue("data:image/png;base64,fake");
 
     await renderMermaidDiagrams(root, {
       dark: true,
       load: async () => renderer,
       sanitize,
+      renderClipboardImage,
     });
 
-    expect(renderer.initialize).toHaveBeenCalledWith(
+    expect(renderer.initialize).toHaveBeenNthCalledWith(
+      1,
       expect.objectContaining({
         securityLevel: "strict",
         suppressErrorRendering: true,
@@ -41,6 +73,36 @@ describe("renderMermaidDiagrams", () => {
     );
     expect(sanitize).toHaveBeenCalled();
     expect(root.querySelector(".mermaid-diagram svg")?.textContent).toBe("diagram");
+    expect(renderClipboardImage).toHaveBeenCalledWith(
+      expect.objectContaining({ textContent: "diagram" }),
+    );
+    expect(root.querySelector<HTMLElement>(".mermaid-diagram")?.dataset.clipboardPng).toBe(
+      "data:image/png;base64,fake",
+    );
+  });
+
+  /** Verifies the clipboard image is rendered in the light theme even when the document is dark. */
+  it("re-renders in the light theme for the clipboard image while displaying dark mode", async () => {
+    const root = document.createElement("article");
+    root.innerHTML = '<pre><code class="language-mermaid">graph TD; A--&gt;B</code></pre>';
+    const renderer = {
+      initialize: vi.fn(),
+      render: vi.fn().mockResolvedValue({ svg: "<svg><text>diagram</text></svg>" }),
+    };
+
+    await renderMermaidDiagrams(root, {
+      dark: true,
+      load: async () => renderer,
+      renderClipboardImage: async () => "data:image/png;base64,fake",
+    });
+
+    expect(renderer.initialize).toHaveBeenCalledTimes(2);
+    expect(renderer.initialize).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ theme: "default" }),
+    );
+    expect(renderer.render).toHaveBeenCalledTimes(2);
+    expect(renderer.render.mock.calls[1][1]).toBe("graph TD; A-->B");
   });
 
   /** Verifies that one parse failure does not replace surrounding document content. */
@@ -88,9 +150,32 @@ describe("renderMermaidDiagrams", () => {
       }),
     };
 
-    await renderMermaidDiagrams(root, { load: async () => renderer });
+    await renderMermaidDiagrams(root, {
+      load: async () => renderer,
+      renderClipboardImage: async () => "data:image/png;base64,fake",
+    });
 
     expect(root.querySelector(".mermaid-diagram script")).toBeNull();
     expect(root.querySelector(".mermaid-diagram text")?.textContent).toBe("safe");
+  });
+
+  /** Verifies a clipboard-image rendering failure is swallowed, leaving the diagram usable. */
+  it("leaves the diagram usable when clipboard-image rendering fails", async () => {
+    const root = document.createElement("article");
+    root.innerHTML = '<pre><code class="language-mermaid">graph TD</code></pre>';
+    const renderer = {
+      initialize: vi.fn(),
+      render: vi.fn().mockResolvedValue({ svg: "<svg><text>diagram</text></svg>" }),
+    };
+
+    await renderMermaidDiagrams(root, {
+      load: async () => renderer,
+      renderClipboardImage: async () => Promise.reject(new Error("rasterization unavailable")),
+    });
+
+    expect(root.querySelector(".mermaid-diagram svg")).not.toBeNull();
+    expect(
+      root.querySelector<HTMLElement>(".mermaid-diagram")?.dataset.clipboardPng,
+    ).toBeUndefined();
   });
 });
