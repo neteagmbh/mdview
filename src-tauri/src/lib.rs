@@ -284,6 +284,7 @@ fn is_about_menu_event(id: &str) -> bool {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .menu(|app| {
             let menu = Menu::default(app)?;
             let open =

@@ -541,6 +541,56 @@ button:focus-visible {
   display: none;
 }
 
+.link-status {
+  overflow: hidden;
+  max-width: 16rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 6px;
+  color: #17428f;
+  background: #e7efff;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.link-status[hidden] {
+  display: none;
+}
+
+.image-popout {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+  background: rgb(10 12 16 / 82%);
+}
+
+.image-popout[hidden] {
+  display: none;
+}
+
+.image-popout-image {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 8px;
+  box-shadow: 0 24px 70px rgb(0 0 0 / 45%);
+}
+
+.image-popout-close {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  color: #fff;
+  background: rgb(255 255 255 / 12%);
+}
+
+.image-popout-close:hover {
+  background: rgb(255 255 255 / 22%);
+}
+
 .about-dialog {
   width: min(calc(100% - 2rem), 430px);
   padding: 1.5rem;

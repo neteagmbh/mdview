@@ -2,10 +2,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { markedHighlight } from "marked-highlight";
 import appIconUrl from "../assets/icon-master.png";
+import { buildLightModeClipboardHtml } from "./clipboard-styles";
+import { attachContentInteractions } from "./content-interactions";
 import { renderMermaidDiagrams } from "./diagrams";
 import {
   getEmbeddedDocument,
@@ -33,6 +36,9 @@ interface OpenedDocument {
 }
 
 const openButton = document.querySelector<HTMLButtonElement>("#open-button")!;
+const openDirectoryButton =
+  document.querySelector<HTMLButtonElement>("#open-directory-button")!;
+const backButton = document.querySelector<HTMLButtonElement>("#back-button")!;
 const welcomeOpenButton =
   document.querySelector<HTMLButtonElement>("#welcome-open-button")!;
 const refreshButton = document.querySelector<HTMLButtonElement>("#refresh-button")!;
@@ -41,6 +47,7 @@ const zoomResetButton = document.querySelector<HTMLButtonElement>("#zoom-reset")
 const zoomInButton = document.querySelector<HTMLButtonElement>("#zoom-in")!;
 const outlineToggle = document.querySelector<HTMLButtonElement>("#outline-toggle")!;
 const fileName = document.querySelector<HTMLElement>("#file-name")!;
+const linkStatus = document.querySelector<HTMLElement>("#link-status")!;
 const appShell = document.querySelector<HTMLElement>(".app-shell")!;
 const tree = document.querySelector<HTMLElement>("#recent-tree")!;
 const treeStatus = document.querySelector<HTMLElement>("#tree-status")!;
@@ -54,12 +61,20 @@ const content = document.querySelector<HTMLElement>("#content")!;
 const dropOverlay = document.querySelector<HTMLElement>("#drop-overlay")!;
 const aboutDialog = document.querySelector<HTMLDialogElement>("#about-dialog")!;
 const aboutIcon = document.querySelector<HTMLImageElement>("#about-icon")!;
+const imagePopout = document.querySelector<HTMLElement>("#image-popout")!;
+const imagePopoutImage =
+  document.querySelector<HTMLImageElement>("#image-popout-image")!;
+const imagePopoutClose =
+  document.querySelector<HTMLButtonElement>("#image-popout-close")!;
 const embeddedDocumentLinks = document.querySelectorAll<HTMLAnchorElement>(
   "[data-embedded-document]",
 );
 
 let activePath: string | null = null;
 let currentZoom = 100;
+let linkStatusTimeout: number | undefined;
+/** Documents visited via in-content link navigation, most recent last. */
+const linkNavigationHistory: string[] = [];
 /** Folder expansion state retained until the application session ends. */
 const recentFolderOpenState = new Map<string, boolean>();
 
@@ -118,6 +133,51 @@ function setOutlineOpen(open: boolean): void {
   outlineSidebar.hidden = !open;
   outlineToggle.setAttribute("aria-expanded", String(open));
   outlineToggle.title = open ? "Close document outline" : "Open document outline";
+}
+
+/** Shows a link's destination briefly before handing it off to the system browser. */
+function showLinkStatus(url: string): void {
+  window.clearTimeout(linkStatusTimeout);
+  linkStatus.hidden = false;
+  linkStatus.textContent = `Opening ${url}`;
+  linkStatus.title = url;
+  linkStatusTimeout = window.setTimeout(() => {
+    linkStatus.hidden = true;
+  }, 4000);
+}
+
+/** Opens an external web link in the system browser after surfacing its URL. */
+function openExternalLink(url: string): void {
+  showLinkStatus(url);
+  void openUrl(url);
+}
+
+/** Enables or disables the back-navigation control based on the link history. */
+function updateBackButtonState(): void {
+  backButton.disabled = linkNavigationHistory.length === 0;
+}
+
+/** Navigates back to the document visited before the most recent link click. */
+async function navigateBack(): Promise<void> {
+  const previousPath = linkNavigationHistory.pop();
+  updateBackButtonState();
+  if (previousPath) {
+    await loadFile(previousPath);
+  }
+}
+
+/** Displays an image from the document in a full-window popout overlay. */
+function openImagePopout(src: string, alt: string): void {
+  imagePopoutImage.src = src;
+  imagePopoutImage.alt = alt;
+  imagePopout.hidden = false;
+  imagePopoutClose.focus();
+}
+
+/** Closes the image popout overlay and releases the displayed image. */
+function closeImagePopout(): void {
+  imagePopout.hidden = true;
+  imagePopoutImage.src = "";
 }
 
 /** Applies a document-only zoom level and updates toolbar controls. */
@@ -234,6 +294,21 @@ async function loadFile(path: string): Promise<void> {
   }
 }
 
+/** Follows a relative Markdown link, recording the current document for back navigation. */
+async function openInternalLink(path: string, fragment: string | null): Promise<void> {
+  if (activePath) {
+    linkNavigationHistory.push(activePath);
+    updateBackButtonState();
+  }
+  await loadFile(path);
+  if (fragment) {
+    const heading = document.getElementById(decodeURIComponent(fragment));
+    if (heading) {
+      scrollHeadingIntoView(heading);
+    }
+  }
+}
+
 /** Prompts for a directory and adds it to the persisted recent folders. */
 async function chooseDirectory(): Promise<void> {
   try {
@@ -272,6 +347,8 @@ async function chooseFile(): Promise<void> {
 }
 
 openButton.addEventListener("click", () => void chooseFile());
+openDirectoryButton.addEventListener("click", () => void chooseDirectory());
+backButton.addEventListener("click", () => void navigateBack());
 welcomeOpenButton.addEventListener("click", () => void chooseFile());
 refreshButton.addEventListener("click", () => void refreshRecentTree());
 zoomOutButton.addEventListener("click", () => applyZoom(stepZoom(currentZoom, -1)));
@@ -288,9 +365,36 @@ embeddedDocumentLinks.forEach((link) => {
   });
 });
 document.addEventListener("keydown", (event) => {
+  if (!imagePopout.hidden && event.key === "Escape") {
+    event.preventDefault();
+    closeImagePopout();
+    return;
+  }
   if (!aboutDialog.open) {
     handleDocumentScrollKey(event, content);
   }
+});
+imagePopoutClose.addEventListener("click", () => closeImagePopout());
+imagePopout.addEventListener("click", (event) => {
+  if (event.target === imagePopout) {
+    closeImagePopout();
+  }
+});
+attachContentInteractions(markdown, {
+  getCurrentPath: () => activePath,
+  openInternalLink: (path, fragment) => void openInternalLink(path, fragment),
+  openExternalLink,
+  openImage: openImagePopout,
+});
+markdown.addEventListener("copy", (event) => {
+  const selection = window.getSelection();
+  const html = selection ? buildLightModeClipboardHtml(selection) : null;
+  if (!html || !event.clipboardData || !selection) {
+    return;
+  }
+  event.preventDefault();
+  event.clipboardData.setData("text/html", html);
+  event.clipboardData.setData("text/plain", selection.toString());
 });
 void listen("menu-open-file", () => void chooseFile());
 void listen("menu-open-directory", () => void chooseDirectory());
