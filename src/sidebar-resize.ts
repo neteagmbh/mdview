@@ -33,16 +33,19 @@ export interface SidebarResizeOptions {
   bounds: SidebarResizeBounds;
   direction: ResizeDirection;
   getCurrentWidth: () => number;
+  onResizeEnd?: (width: number) => void;
 }
 
 /** Wires pointer-drag resizing on a handle, writing the resulting width to a CSS custom property. */
 export function attachSidebarResize(options: SidebarResizeOptions): void {
-  const { handle, target, cssVariable, bounds, direction, getCurrentWidth } = options;
+  const { handle, target, cssVariable, bounds, direction, getCurrentWidth, onResizeEnd } = options;
   let startClientX = 0;
   let startWidth = 0;
+  let currentWidth = 0;
 
   function handlePointerMove(event: PointerEvent): void {
     const width = computeResizedWidth(startWidth, startClientX, event.clientX, direction, bounds);
+    currentWidth = width;
     target.style.setProperty(cssVariable, `${width}px`);
   }
 
@@ -53,11 +56,13 @@ export function attachSidebarResize(options: SidebarResizeOptions): void {
     handle.removeEventListener("pointermove", handlePointerMove);
     handle.removeEventListener("pointerup", handlePointerUp);
     handle.classList.remove("resizing");
+    onResizeEnd?.(currentWidth);
   }
 
   handle.addEventListener("pointerdown", (event) => {
     startClientX = event.clientX;
     startWidth = getCurrentWidth();
+    currentWidth = startWidth;
     handle.classList.add("resizing");
     if (typeof handle.setPointerCapture === "function" && event.pointerId !== undefined) {
       handle.setPointerCapture(event.pointerId);

@@ -1,13 +1,22 @@
+import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import {
+  getCurrentWindow,
+  PhysicalPosition,
+  PhysicalSize,
+} from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { markedHighlight } from "marked-highlight";
 import appIconUrl from "../assets/icon-master.png";
-import { buildLightModeClipboardHtml } from "./clipboard-styles";
+import {
+  buildLightModeClipboardHtml,
+  prepareLightModePrint,
+} from "./clipboard-styles";
 import { attachContentInteractions } from "./content-interactions";
 import { renderMermaidDiagrams } from "./diagrams";
 import { getEmbeddedDocument, type EmbeddedDocumentId } from "./embedded-documents";
@@ -26,7 +35,21 @@ import {
   updateRecentTreeActivePath,
 } from "./recent-tree";
 import { attachSidebarResize } from "./sidebar-resize";
+import {
+  createSearchController,
+  type FileSearchResult,
+  type SearchScope,
+} from "./search";
+import { openPrintDialog } from "./print";
 import { stepZoom, ZOOM_LEVELS, zoomFactor, zoomLabel } from "./zoom";
+import {
+  EMPTY_VIEW_STATE,
+  normalizeViewState,
+  OUTLINE_WIDTH_BOUNDS,
+  SIDEBAR_WIDTH_BOUNDS,
+  type ViewState,
+  type WindowGeometry,
+} from "./view-state";
 import "./styles.css";
 
 interface OpenedDocument {
@@ -45,7 +68,17 @@ const refreshButton = document.querySelector<HTMLButtonElement>("#refresh-button
 const zoomOutButton = document.querySelector<HTMLButtonElement>("#zoom-out")!;
 const zoomResetButton = document.querySelector<HTMLButtonElement>("#zoom-reset")!;
 const zoomInButton = document.querySelector<HTMLButtonElement>("#zoom-in")!;
+const printButton = document.querySelector<HTMLButtonElement>("#print-button")!;
 const outlineToggle = document.querySelector<HTMLButtonElement>("#outline-toggle")!;
+const searchToggle = document.querySelector<HTMLButtonElement>("#search-toggle")!;
+const searchBar = document.querySelector<HTMLElement>("#search-bar")!;
+const searchInput = document.querySelector<HTMLInputElement>("#search-input")!;
+const searchScope = document.querySelector<HTMLSelectElement>("#search-scope")!;
+const searchCount = document.querySelector<HTMLElement>("#search-count")!;
+const searchPrev = document.querySelector<HTMLButtonElement>("#search-prev")!;
+const searchNext = document.querySelector<HTMLButtonElement>("#search-next")!;
+const searchClose = document.querySelector<HTMLButtonElement>("#search-close")!;
+const searchResults = document.querySelector<HTMLElement>("#search-results")!;
 const fileName = document.querySelector<HTMLElement>("#file-name")!;
 const linkStatus = document.querySelector<HTMLElement>("#link-status")!;
 const appShell = document.querySelector<HTMLElement>(".app-shell")!;
@@ -63,9 +96,11 @@ const welcome = document.querySelector<HTMLElement>("#welcome")!;
 const markdown = document.querySelector<HTMLElement>("#markdown")!;
 const error = document.querySelector<HTMLElement>("#error")!;
 const content = document.querySelector<HTMLElement>("#content")!;
+const printHeader = document.querySelector<HTMLElement>("#print-header")!;
 const dropOverlay = document.querySelector<HTMLElement>("#drop-overlay")!;
 const aboutDialog = document.querySelector<HTMLDialogElement>("#about-dialog")!;
 const aboutIcon = document.querySelector<HTMLImageElement>("#about-icon")!;
+const aboutVersion = document.querySelector<HTMLElement>("#about-version")!;
 const imagePopout = document.querySelector<HTMLElement>("#image-popout")!;
 const imagePopoutContent =
   document.querySelector<HTMLElement>("#image-popout-content")!;
@@ -80,6 +115,7 @@ const imagePopoutClose =
 const embeddedDocumentLinks = document.querySelectorAll<HTMLAnchorElement>(
   "[data-embedded-document]",
 );
+const appWindow = getCurrentWindow();
 
 const imagePopoutController = createImagePopoutController({
   overlay: imagePopout,
@@ -93,6 +129,8 @@ const imagePopoutController = createImagePopoutController({
 let activePath: string | null = null;
 let currentZoom = 100;
 let linkStatusTimeout: number | undefined;
+let viewStateSaveTimeout: number | undefined;
+let viewState: ViewState = { ...EMPTY_VIEW_STATE };
 /** Documents visited via in-content link navigation, most recent last. */
 const linkNavigationHistory: string[] = [];
 /** Folder expansion state retained until the application session ends. */
@@ -114,12 +152,49 @@ function basename(path: string): string {
   return path.split(/[\\/]/).pop() || path;
 }
 
+/** Returns the parent directory of a path, or `null` when the path has no separator. */
+function parentFolder(path: string): string | null {
+  const match = path.match(/^(.*)[\\/][^\\/]+$/);
+  return match ? match[1] : null;
+}
+
+/** Schedules the current view state for native persistence after rapid changes settle. */
+function scheduleViewStateSave(): void {
+  window.clearTimeout(viewStateSaveTimeout);
+  viewStateSaveTimeout = window.setTimeout(() => {
+    void invoke("save_view_state", { state: viewState }).catch((saveError) => {
+      console.error("Could not save view state", saveError);
+    });
+  }, 250);
+}
+
+/** Replaces selected persisted state fields and schedules them for storage. */
+function updateViewState(update: Partial<ViewState>): void {
+  viewState = { ...viewState, ...update };
+  scheduleViewStateSave();
+}
+
+/** Reads the current physical main-window geometry. */
+async function currentWindowGeometry(): Promise<WindowGeometry> {
+  const [size, position] = await Promise.all([
+    appWindow.innerSize(),
+    appWindow.outerPosition(),
+  ]);
+  return {
+    width: size.width,
+    height: size.height,
+    x: position.x,
+    y: position.y,
+  };
+}
+
 /** Displays a document-level error and clears the current outline. */
 function showError(message: unknown): void {
   welcome.hidden = true;
   markdown.hidden = true;
   error.hidden = false;
   error.textContent = message instanceof Error ? message.message : String(message);
+  printButton.disabled = true;
   renderDocumentOutline();
 }
 
@@ -232,10 +307,12 @@ async function renderMarkdownSource(
   markdown.innerHTML = DOMPurify.sanitize(rendered);
   fileName.textContent = title;
   fileName.title = path ?? title;
+  printHeader.textContent = `${title} — ${new Date().toLocaleDateString()}`;
   window.document.title = `${title} — mdview`;
   welcome.hidden = true;
   error.hidden = true;
   markdown.hidden = false;
+  printButton.disabled = false;
   await renderMermaidDiagrams(markdown, {
     dark: window.matchMedia("(prefers-color-scheme: dark)").matches,
   });
@@ -318,8 +395,62 @@ async function loadFile(path: string): Promise<void> {
     const document = await invoke<OpenedDocument>("open_markdown_file", { path });
     await renderMarkdownSource(document.content, basename(document.path), document.path);
     renderRecentTree(document.recentFolders);
+    updateViewState({ activeDocument: document.path });
   } catch (loadError) {
+    if (viewState.activeDocument === path) {
+      updateViewState({ activeDocument: null });
+    }
     showError(loadError);
+  }
+}
+
+/** Restores persisted layout and document state, then starts observing window changes. */
+async function initializeViewState(): Promise<void> {
+  void getVersion()
+    .then((version) => {
+      aboutVersion.textContent = `Version ${version}`;
+    })
+    .catch(() => undefined);
+
+  try {
+    viewState = normalizeViewState(await invoke<ViewState>("load_view_state"));
+    if (viewState.sidebarWidth !== null) {
+      appShell.style.setProperty("--sidebar-width", `${viewState.sidebarWidth}px`);
+    }
+    if (viewState.outlineWidth !== null) {
+      appShell.style.setProperty("--outline-width", `${viewState.outlineWidth}px`);
+    }
+    if (viewState.window) {
+      await appWindow.setSize(
+        new PhysicalSize(viewState.window.width, viewState.window.height),
+      );
+      await appWindow.setPosition(new PhysicalPosition(viewState.window.x, viewState.window.y));
+    }
+  } catch (restoreError) {
+    console.error("Could not restore view state", restoreError);
+  }
+
+  try {
+    viewState = { ...viewState, window: await currentWindowGeometry() };
+    await appWindow.onResized(({ payload }) => {
+      const geometry = viewState.window;
+      if (geometry) {
+        updateViewState({ window: { ...geometry, width: payload.width, height: payload.height } });
+      }
+    });
+    await appWindow.onMoved(({ payload }) => {
+      const geometry = viewState.window;
+      if (geometry) {
+        updateViewState({ window: { ...geometry, x: payload.x, y: payload.y } });
+      }
+    });
+  } catch (observeError) {
+    console.error("Could not observe window geometry", observeError);
+  }
+
+  await refreshRecentTree();
+  if (viewState.activeDocument) {
+    await loadFile(viewState.activeDocument);
   }
 }
 
@@ -394,6 +525,15 @@ async function chooseFile(): Promise<void> {
   }
 }
 
+/** Opens the platform print dialog, retaining browser printing as a non-macOS fallback. */
+function printDocument(): void {
+  void openPrintDialog(
+    () => invoke<boolean>("print_document"),
+    () => window.print(),
+    (printError) => console.error("Could not open native print dialog", printError),
+  );
+}
+
 openButton.addEventListener("click", () => void chooseFile());
 openDirectoryButton.addEventListener("click", () => void chooseDirectory());
 backButton.addEventListener("click", () => void navigateBack());
@@ -402,6 +542,7 @@ refreshButton.addEventListener("click", () => void refreshRecentTree());
 zoomOutButton.addEventListener("click", () => applyZoom(stepZoom(currentZoom, -1)));
 zoomResetButton.addEventListener("click", () => applyZoom(100));
 zoomInButton.addEventListener("click", () => applyZoom(stepZoom(currentZoom, 1)));
+printButton.addEventListener("click", printDocument);
 outlineToggle.addEventListener("click", () => {
   setOutlineOpen(outlineSidebar.hidden);
 });
@@ -411,6 +552,53 @@ embeddedDocumentLinks.forEach((link) => {
     aboutDialog.close();
     void loadEmbeddedDocument(link.dataset.embeddedDocument as EmbeddedDocumentId);
   });
+});
+
+/** Runs a backend Markdown search scoped to a folder or all recent folders. */
+async function searchFiles(query: string, scope: SearchScope): Promise<FileSearchResult[]> {
+  const root = scope === "directory" ? (activePath ? parentFolder(activePath) : null) : null;
+  if (scope === "directory" && !root) {
+    return [];
+  }
+  return invoke<FileSearchResult[]>("search_markdown_files", { query, root });
+}
+
+const searchController = createSearchController({
+  bar: searchBar,
+  input: searchInput,
+  scopeSelect: searchScope,
+  countLabel: searchCount,
+  previousButton: searchPrev,
+  nextButton: searchNext,
+  closeButton: searchClose,
+  results: searchResults,
+  getContentRoot: () => markdown,
+  searchFiles,
+  openResult: (path) => loadFile(path),
+});
+
+searchToggle.addEventListener("click", () => {
+  searchController.toggle();
+  searchToggle.setAttribute("aria-expanded", String(searchController.isOpen()));
+});
+searchClose.addEventListener("click", () => {
+  searchToggle.setAttribute("aria-expanded", "false");
+});
+document.addEventListener("keydown", (event) => {
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
+    event.preventDefault();
+    searchController.open();
+    searchToggle.setAttribute("aria-expanded", "true");
+  }
+});
+let restorePrintDocument: (() => void) | null = null;
+window.addEventListener("beforeprint", () => {
+  restorePrintDocument?.();
+  restorePrintDocument = prepareLightModePrint(markdown);
+});
+window.addEventListener("afterprint", () => {
+  restorePrintDocument?.();
+  restorePrintDocument = null;
 });
 document.addEventListener("keydown", (event) => {
   if (!aboutDialog.open) {
@@ -435,6 +623,7 @@ markdown.addEventListener("copy", (event) => {
 });
 void listen("menu-open-file", () => void chooseFile());
 void listen("menu-open-directory", () => void chooseDirectory());
+void listen("menu-print", printDocument);
 void listen("menu-about", showAboutDialog);
 void listen<{ paths: string[] }>("watched-path-changed", (event) => {
   const { paths } = event.payload;
@@ -458,22 +647,24 @@ void getCurrentWebview().onDragDropEvent((event) => {
   }
 });
 
-void refreshRecentTree();
 applyZoom(100);
 aboutIcon.src = appIconUrl;
 attachSidebarResize({
   handle: sidebarResizeHandle,
   target: appShell,
   cssVariable: "--sidebar-width",
-  bounds: { min: 200, max: 480 },
+  bounds: SIDEBAR_WIDTH_BOUNDS,
   direction: "grow-right",
   getCurrentWidth: () => sidebar.getBoundingClientRect().width,
+  onResizeEnd: (sidebarWidth) => updateViewState({ sidebarWidth }),
 });
 attachSidebarResize({
   handle: outlineResizeHandle,
   target: appShell,
   cssVariable: "--outline-width",
-  bounds: { min: 200, max: 420 },
+  bounds: OUTLINE_WIDTH_BOUNDS,
   direction: "grow-left",
   getCurrentWidth: () => outlineSidebar.getBoundingClientRect().width,
+  onResizeEnd: (outlineWidth) => updateViewState({ outlineWidth }),
 });
+void initializeViewState();

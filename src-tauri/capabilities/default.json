@@ -3,6 +3,12 @@
   "identifier": "default",
   "description": "Permissions for the main mdview window",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:allow-open", "opener:default"]
+  "permissions": [
+    "core:default",
+    "core:window:allow-set-position",
+    "core:window:allow-set-size",
+    "dialog:allow-open",
+    "opener:default"
+  ]
 }
 

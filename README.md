@@ -9,6 +9,8 @@ A small desktop Markdown viewer built with Rust, Tauri 2, TypeScript, and Vite.
 - Persistent LRU of recently viewed folders with pinning to exempt folders from eviction
 - Recursive Markdown file tree with refresh support and live updates for new/changed files
 - Toggleable document outline with heading navigation
+- Markdown search within the current file, a folder, or all recent folders
+- Printing and PDF export with a repeating filename/date header and page numbers
 - Syntax highlighting for fenced code blocks
 - Mermaid diagram rendering
 - Session document zoom controls

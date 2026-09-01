@@ -47,9 +47,10 @@ aktualisiert (zusammen mit der jeweiligen Jira-Transition).
 | 2 – Content-Interaktionsschicht | NT-4, NT-10 | ✅ Fertig | 2026-08-21 |
 | 3 – Layout-Fundament | NT-7 | ✅ Fertig | 2026-08-21 |
 | 4 – Recent Folders v2 | NT-6, NT-13, NT-14 | ✅ Fertig | 2026-08-21 |
-| 5 – Suche | NT-8 | 🔲 Nicht begonnen | – |
-| 6 – Druck/PDF-Export | NT-12 | 🔲 Nicht begonnen | – |
+| 5 – Suche | NT-8 | ✅ Fertig | 2026-09-01 |
+| 6 – Druck/PDF-Export | NT-12 | ✅ Fertig | 2026-09-01 |
 | 7 – iOS/iCloud | NT-11 | 🔲 Nicht begonnen | – |
+| Zusatz – View State | NT-15 | ✅ Fertig | 2026-09-01 |
 
 ---
 
@@ -199,7 +200,7 @@ aktualisiert (zusammen mit der jeweiligen Jira-Transition).
 
 ## Phase 5 – Suche (NT-8)
 
-**Status:** 🔲 Nicht begonnen
+**Status:** ✅ Fertig (2026-09-01) – Suchleiste in [index.html](../../index.html), Modul [src/search.ts](../../src/search.ts) (In-Datei-Highlighting/-Navigation + Verzeichnis-/Alle-Ordner-Suche), Backend-Kommando `search_markdown_files` in [src-tauri/src/lib.rs](../../src-tauri/src/lib.rs) (kein Cache), Tests grün (`npm test` 74, `cargo test` 25), Jira auf „Fertig".
 
 ### Schritt 5.0 – Jira
 - NT-8: Transition „Start work" → In Arbeit.
@@ -223,7 +224,7 @@ aktualisiert (zusammen mit der jeweiligen Jira-Transition).
 
 ## Phase 6 – Druck/PDF-Export (NT-12)
 
-**Status:** 🔲 Nicht begonnen
+**Status:** ✅ Fertig (2026-09-01) – Druck-/PDF-Trigger in Toolbar und nativem File-Menü, helle Exportfarben inkl. Mermaid-PNGs, reduzierte `@media print`-Ansicht; Tests und Builds grün, Jira auf „Fertig".
 
 ### Schritt 6.0 – Jira
 - NT-12: Transition „Start work" → In Arbeit. **Voraussetzung:** Phase 3 (NT-7) ist „Fertig".
@@ -280,6 +281,23 @@ aktualisiert (zusammen mit der jeweiligen Jira-Transition).
 
 ### Schritt 7.6 – Jira-Abschluss
 - NT-11: Kommentar + Transition „Resolve" → Fertig.
+
+---
+
+## Zusatz – View State (NT-15)
+
+**Status:** ✅ Fertig (2026-09-01) – Fenstergröße/-position, Sidebarbreiten und letztes Dokument werden in `view-state.json` persistiert und beim Start restauriert; der About-Dialog zeigt die Paketversion.
+
+### Umsetzung
+1. Native `load_view_state`-/`save_view_state`-Kommandos mit tolerantem JSON-Schema im App-Data-Verzeichnis.
+2. Fenstergeometrie über Tauri-Window-Events mit Debounce speichern und vor dem Event-Listening restaurieren.
+3. Sidebarbreiten nach abgeschlossenem Pointer-Drag speichern und auf die bestehenden Grenzen normalisieren.
+4. Letztes erfolgreich geöffnetes Markdown-Dokument beim Start erneut öffnen.
+5. Version über Tauri `getVersion()` im About-Dialog anzeigen.
+
+### Validierung
+- `npm test`, `npm run build`
+- `cargo test`, `cargo clippy --all-targets` (in `src-tauri`)
 
 ---
 

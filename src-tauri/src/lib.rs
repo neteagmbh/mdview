@@ -1,5 +1,5 @@
 use notify::RecommendedWatcher;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     fs, io,
     path::{Path, PathBuf},
@@ -17,16 +17,24 @@ mod watcher;
 const MAX_FILE_SIZE: u64 = 16 * 1024 * 1024;
 /// Maximum number of recently viewed folders retained in persistent storage.
 const MAX_RECENT_FOLDERS: usize = 10;
+/// Maximum number of matches reported per file by the directory search.
+const MAX_SEARCH_MATCHES_PER_FILE: usize = 50;
+/// Maximum number of characters retained from a matching line for display.
+const MAX_SEARCH_LINE_CHARS: usize = 200;
 /// File extensions recognized as Markdown, without the leading dot.
 const MARKDOWN_EXTENSIONS: &[&str] = &["md", "markdown", "mdown", "mkd", "mkdn"];
 /// File name used for the persistent recent-folder list.
 const RECENT_FOLDERS_FILE: &str = "recent-folders.json";
+/// File name used for persisted window, sidebar, and active-document state.
+const VIEW_STATE_FILE: &str = "view-state.json";
 /// Files modified more recently than this are always eligible for the "new document" marker.
 const NEW_FILE_WINDOW: Duration = Duration::from_secs(2 * 60 * 60);
 /// Stable identifier for the native File → Open menu item.
 const OPEN_FILE_MENU_ID: &str = "open_file";
 /// Stable identifier for the native File → Open Directory menu item.
 const OPEN_DIRECTORY_MENU_ID: &str = "open_directory";
+/// Stable identifier for the native File → Print menu item.
+const PRINT_MENU_ID: &str = "print";
 /// Stable identifier for the native About menu item.
 const ABOUT_MENU_ID: &str = "about_mdview";
 
@@ -78,6 +86,58 @@ struct OpenedDocument {
     recent_folders: Vec<MarkdownTreeNode>,
 }
 
+/// Physical size and position of the main application window.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+struct WindowGeometry {
+    /// Inner window width in physical pixels.
+    width: u32,
+    /// Inner window height in physical pixels.
+    height: u32,
+    /// Outer window x-coordinate in physical pixels.
+    x: i32,
+    /// Outer window y-coordinate in physical pixels.
+    y: i32,
+}
+
+/// Persisted application view state restored on the next launch.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+struct ViewState {
+    /// Last known main-window geometry, if it has been observed.
+    window: Option<WindowGeometry>,
+    /// Width of the recent-folders sidebar in CSS pixels.
+    sidebar_width: Option<f64>,
+    /// Width of the document-outline sidebar in CSS pixels.
+    outline_width: Option<f64>,
+    /// Last successfully opened Markdown document.
+    active_document: Option<PathBuf>,
+}
+
+/// A single matched line within a Markdown document, reported by directory search.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SearchMatch {
+    /// One-based line number of the match.
+    line: usize,
+    /// One-based character column of the first character of the match on its line.
+    column: usize,
+    /// Display text of the matching line, truncated to `MAX_SEARCH_LINE_CHARS` characters.
+    line_text: String,
+}
+
+/// All matches found in a single Markdown file by the directory search.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FileSearchResult {
+    /// File-system display name of the matched file.
+    name: String,
+    /// Absolute path of the matched file.
+    path: PathBuf,
+    /// Matches within the file, in document order.
+    matches: Vec<SearchMatch>,
+}
+
 /// Returns whether a path has one of the supported Markdown extensions.
 fn is_markdown(path: &Path) -> bool {
     path.extension()
@@ -100,7 +160,10 @@ fn display_name(path: &Path) -> String {
 ///
 /// Directory branches without Markdown descendants and symbolic links are omitted. Files
 /// modified after `new_file_threshold` are flagged as new documents.
-fn scan_directory(path: &Path, new_file_threshold: SystemTime) -> io::Result<Vec<MarkdownTreeNode>> {
+fn scan_directory(
+    path: &Path,
+    new_file_threshold: SystemTime,
+) -> io::Result<Vec<MarkdownTreeNode>> {
     let mut nodes = Vec::new();
 
     for entry in fs::read_dir(path)? {
@@ -148,6 +211,61 @@ fn scan_directory(path: &Path, new_file_threshold: SystemTime) -> io::Result<Vec
     Ok(nodes)
 }
 
+/// Collects the absolute paths of all Markdown files within a recent-folder tree.
+fn collect_markdown_files(nodes: &[MarkdownTreeNode], files: &mut Vec<PathBuf>) {
+    for node in nodes {
+        if node.is_directory {
+            collect_markdown_files(&node.children, files);
+        } else {
+            files.push(node.path.clone());
+        }
+    }
+}
+
+/// Truncates a matching line to `MAX_SEARCH_LINE_CHARS` characters for display.
+fn truncate_search_line(line: &str) -> String {
+    if line.chars().count() > MAX_SEARCH_LINE_CHARS {
+        line.chars().take(MAX_SEARCH_LINE_CHARS).collect()
+    } else {
+        line.to_owned()
+    }
+}
+
+/// Finds all case-insensitive occurrences of `query` in `content`, grouped by line.
+///
+/// Returns at most `MAX_SEARCH_MATCHES_PER_FILE` matches. An empty or whitespace-only query
+/// yields no matches. Columns are one-based character offsets on the matching line.
+fn find_matches_in_content(content: &str, query: &str) -> Vec<SearchMatch> {
+    let needle = query.trim().to_lowercase();
+    if needle.is_empty() {
+        return Vec::new();
+    }
+
+    let mut matches = Vec::new();
+    for (line_index, line) in content.lines().enumerate() {
+        let haystack = line.to_lowercase();
+        let mut search_start = 0;
+        while let Some(offset) = haystack[search_start..].find(&needle) {
+            let byte_position = search_start + offset;
+            let column = haystack[..byte_position].chars().count() + 1;
+            matches.push(SearchMatch {
+                line: line_index + 1,
+                column,
+                line_text: truncate_search_line(line),
+            });
+            if matches.len() >= MAX_SEARCH_MATCHES_PER_FILE {
+                return matches;
+            }
+            search_start = byte_position + needle.len();
+            if search_start >= haystack.len() {
+                break;
+            }
+        }
+    }
+
+    matches
+}
+
 /// Computes the cutoff before which files are not flagged as new documents.
 ///
 /// A file counts as new when it was modified within the last two hours, or since the previous
@@ -162,7 +280,10 @@ fn new_file_threshold(now: SystemTime, previous_session_save: Option<SystemTime>
 }
 
 /// Builds display trees for existing folders while preserving LRU order.
-fn build_recent_tree(folders: &[RecentFolderEntry], new_file_threshold: SystemTime) -> Vec<MarkdownTreeNode> {
+fn build_recent_tree(
+    folders: &[RecentFolderEntry],
+    new_file_threshold: SystemTime,
+) -> Vec<MarkdownTreeNode> {
     folders
         .iter()
         .filter(|entry| entry.path.is_dir())
@@ -186,7 +307,13 @@ fn promote_folder(folders: &mut Vec<RecentFolderEntry>, folder: PathBuf) {
         .find(|entry| entry.path == folder)
         .is_some_and(|entry| entry.pinned);
     folders.retain(|entry| entry.path != folder);
-    folders.insert(0, RecentFolderEntry { path: folder, pinned });
+    folders.insert(
+        0,
+        RecentFolderEntry {
+            path: folder,
+            pinned,
+        },
+    );
     enforce_recent_folder_limit(folders);
 }
 
@@ -230,7 +357,6 @@ fn set_folder_pinned(folders: &mut [RecentFolderEntry], folder: &Path, pinned: b
         .is_some()
 }
 
-
 /// Validates and canonicalizes a directory path.
 fn canonical_directory(path: &Path) -> Result<PathBuf, String> {
     let metadata =
@@ -248,6 +374,49 @@ fn recent_folders_path(app: &AppHandle) -> Result<PathBuf, String> {
         .app_data_dir()
         .map(|directory| directory.join(RECENT_FOLDERS_FILE))
         .map_err(|error| format!("Could not locate application storage: {error}"))
+}
+
+/// Resolves the view-state file inside Tauri's platform app-data directory.
+fn view_state_path(app: &AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_data_dir()
+        .map(|directory| directory.join(VIEW_STATE_FILE))
+        .map_err(|error| format!("Could not locate application storage: {error}"))
+}
+
+/// Reads view state from a path, returning defaults on first launch or malformed data.
+fn load_view_state_from_path(path: &Path) -> Result<ViewState, String> {
+    match fs::read_to_string(path) {
+        Ok(json) => Ok(serde_json::from_str(&json).unwrap_or_default()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(ViewState::default()),
+        Err(error) => Err(format!("Could not read view state: {error}")),
+    }
+}
+
+/// Persists view state at a path, creating its parent directory when necessary.
+fn save_view_state_to_path(path: &Path, state: &ViewState) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| "View-state path has no parent directory.".to_owned())?;
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("Could not create application storage: {error}"))?;
+    let json = serde_json::to_string_pretty(state)
+        .map_err(|error| format!("Could not encode view state: {error}"))?;
+    fs::write(path, json).map_err(|error| format!("Could not save view state: {error}"))
+}
+
+/// Returns persisted window, sidebar, and active-document state to the frontend.
+#[allow(clippy::needless_pass_by_value)]
+#[tauri::command]
+fn load_view_state(app: AppHandle) -> Result<ViewState, String> {
+    load_view_state_from_path(&view_state_path(&app)?)
+}
+
+/// Replaces the persisted window, sidebar, and active-document state.
+#[allow(clippy::needless_pass_by_value)]
+#[tauri::command]
+fn save_view_state(app: AppHandle, state: ViewState) -> Result<(), String> {
+    save_view_state_to_path(&view_state_path(&app)?, &state)
 }
 
 /// Loads the persistent recent-folder list, returning an empty list on first launch.
@@ -333,7 +502,6 @@ fn build_recent_tree_with_threshold(
 ) -> Vec<MarkdownTreeNode> {
     build_recent_tree(folders, app.state::<NewFileThreshold>().0)
 }
-
 
 /// Returns the current recent-folder tree to the frontend.
 #[allow(clippy::needless_pass_by_value)]
@@ -435,6 +603,79 @@ fn read_markdown_file(path: String) -> Result<String, String> {
     fs::read_to_string(&path).map_err(|error| format!("Could not read file as UTF-8: {error}"))
 }
 
+/// Opens the native webview print dialog where Tauri supports it.
+///
+/// macOS uses Wry's native `WKWebView` print operation. Other desktop platforms return
+/// `false` so the frontend can retain `window.print()` as its cross-platform fallback.
+#[allow(clippy::needless_pass_by_value)]
+#[tauri::command]
+fn print_document(webview: tauri::Webview) -> Result<bool, String> {
+    #[cfg(target_os = "macos")]
+    {
+        webview
+            .print()
+            .map_err(|error| format!("Could not open print dialog: {error}"))?;
+        Ok(true)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = webview;
+        Ok(false)
+    }
+}
+
+/// Searches Markdown files below one or all recent-folder roots for a query string.
+///
+/// When `root` is `Some`, only that directory is searched; when `None`, every persisted
+/// recent folder is searched. Files are read on demand without caching, so results always
+/// reflect the current on-disk content. Files that cannot be read as UTF-8 are skipped.
+#[allow(clippy::needless_pass_by_value)]
+#[tauri::command]
+fn search_markdown_files(
+    app: AppHandle,
+    query: String,
+    root: Option<String>,
+) -> Result<Vec<FileSearchResult>, String> {
+    if query.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let roots = match root {
+        Some(root) => vec![canonical_directory(Path::new(&root))?],
+        None => load_recent_folders(&app)?
+            .into_iter()
+            .map(|entry| entry.path)
+            .collect(),
+    };
+
+    let threshold = app.state::<NewFileThreshold>().0;
+    let mut files = Vec::new();
+    for root in &roots {
+        let nodes = scan_directory(root, threshold).unwrap_or_default();
+        collect_markdown_files(&nodes, &mut files);
+    }
+    files.sort();
+    files.dedup();
+
+    let mut results = Vec::new();
+    for file in files {
+        let Ok(content) = fs::read_to_string(&file) else {
+            continue;
+        };
+        let matches = find_matches_in_content(&content, &query);
+        if !matches.is_empty() {
+            results.push(FileSearchResult {
+                name: display_name(&file),
+                path: file,
+                matches,
+            });
+        }
+    }
+
+    Ok(results)
+}
+
 /// Returns whether a native menu event should open the file picker.
 fn is_open_file_menu_event(id: &str) -> bool {
     id == OPEN_FILE_MENU_ID
@@ -445,9 +686,27 @@ fn is_open_directory_menu_event(id: &str) -> bool {
     id == OPEN_DIRECTORY_MENU_ID
 }
 
+/// Returns whether a native menu event should open the system print dialog.
+fn is_print_menu_event(id: &str) -> bool {
+    id == PRINT_MENU_ID
+}
+
 /// Returns whether a native menu event should open the About dialog.
 fn is_about_menu_event(id: &str) -> bool {
     id == ABOUT_MENU_ID
+}
+
+/// Emits the frontend event associated with a native application menu item.
+fn emit_menu_event(app: &AppHandle, id: &str) {
+    if is_open_file_menu_event(id) {
+        let _ = app.emit("menu-open-file", ());
+    } else if is_open_directory_menu_event(id) {
+        let _ = app.emit("menu-open-directory", ());
+    } else if is_print_menu_event(id) {
+        let _ = app.emit("menu-print", ());
+    } else if is_about_menu_event(id) {
+        let _ = app.emit("menu-about", ());
+    }
 }
 
 /// Builds and runs the Tauri desktop application.
@@ -480,6 +739,7 @@ pub fn run() {
                 true,
                 Some("CmdOrCtrl+Shift+O"),
             )?;
+            let print = MenuItem::with_id(app, PRINT_MENU_ID, "Print…", true, Some("CmdOrCtrl+P"))?;
             let about = MenuItem::with_id(app, ABOUT_MENU_ID, "About mdview", true, None::<&str>)?;
             let file = Submenu::with_items(
                 app,
@@ -488,6 +748,8 @@ pub fn run() {
                 &[
                     &open,
                     &open_directory,
+                    &PredefinedMenuItem::separator(app)?,
+                    &print,
                     &PredefinedMenuItem::separator(app)?,
                     &PredefinedMenuItem::close_window(app, None)?,
                     #[cfg(not(target_os = "macos"))]
@@ -539,21 +801,17 @@ pub fn run() {
 
             Ok(menu)
         })
-        .on_menu_event(|app, event| {
-            if is_open_file_menu_event(event.id().as_ref()) {
-                let _ = app.emit("menu-open-file", ());
-            } else if is_open_directory_menu_event(event.id().as_ref()) {
-                let _ = app.emit("menu-open-directory", ());
-            } else if is_about_menu_event(event.id().as_ref()) {
-                let _ = app.emit("menu-about", ());
-            }
-        })
+        .on_menu_event(|app, event| emit_menu_event(app, event.id().as_ref()))
         .invoke_handler(tauri::generate_handler![
             add_recent_folder,
+            load_view_state,
             open_markdown_file,
+            print_document,
             read_markdown_file,
             recent_markdown_tree,
             remove_recent_folder,
+            save_view_state,
+            search_markdown_files,
             set_recent_folder_pinned
         ])
         .run(tauri::generate_context!())
@@ -565,10 +823,12 @@ mod tests {
     //! Unit tests for Markdown discovery, LRU ordering, and native menu routing.
 
     use super::{
-        MAX_RECENT_FOLDERS, RecentFolderEntry, canonical_directory, is_about_menu_event,
-        is_markdown, is_open_directory_menu_event, is_open_file_menu_event, new_file_threshold,
-        parse_recent_folders, promote_document_folder, promote_folder, remove_folder,
-        scan_directory, set_folder_pinned,
+        MAX_RECENT_FOLDERS, MAX_SEARCH_MATCHES_PER_FILE, MarkdownTreeNode, RecentFolderEntry,
+        ViewState, WindowGeometry, canonical_directory, collect_markdown_files,
+        find_matches_in_content, is_about_menu_event, is_markdown, is_open_directory_menu_event,
+        is_open_file_menu_event, is_print_menu_event, load_view_state_from_path,
+        new_file_threshold, parse_recent_folders, promote_document_folder, promote_folder,
+        remove_folder, save_view_state_to_path, scan_directory, set_folder_pinned,
     };
     use std::{
         fs,
@@ -609,10 +869,16 @@ mod tests {
             .collect();
 
         promote_folder(&mut folders, PathBuf::from("folder-4"));
-        assert_eq!(folders.first().map(|entry| &entry.path), Some(&PathBuf::from("folder-4")));
+        assert_eq!(
+            folders.first().map(|entry| &entry.path),
+            Some(&PathBuf::from("folder-4"))
+        );
         assert_eq!(folders.len(), MAX_RECENT_FOLDERS);
         assert_eq!(
-            folders.iter().filter(|entry| entry.path == Path::new("folder-4")).count(),
+            folders
+                .iter()
+                .filter(|entry| entry.path == Path::new("folder-4"))
+                .count(),
             1
         );
 
@@ -632,8 +898,16 @@ mod tests {
 
         promote_folder(&mut folders, PathBuf::from("one-more"));
 
-        assert!(folders.iter().any(|entry| entry.path == Path::new("pinned-a")));
-        assert!(folders.iter().any(|entry| entry.path == Path::new("pinned-b")));
+        assert!(
+            folders
+                .iter()
+                .any(|entry| entry.path == Path::new("pinned-a"))
+        );
+        assert!(
+            folders
+                .iter()
+                .any(|entry| entry.path == Path::new("pinned-b"))
+        );
         assert_eq!(
             folders.iter().filter(|entry| !entry.pinned).count(),
             MAX_RECENT_FOLDERS
@@ -680,9 +954,7 @@ mod tests {
     /// A missing or malformed `pinned` field defaults to unpinned instead of failing the entry.
     #[test]
     fn parses_entries_with_missing_or_null_pinned_field_as_unpinned() {
-        let entries = parse_recent_folders(
-            r#"[{"path":"/docs"},{"path":"/notes","pinned":null}]"#,
-        );
+        let entries = parse_recent_folders(r#"[{"path":"/docs"},{"path":"/notes","pinned":null}]"#);
 
         assert_eq!(entries, vec![entry("/docs"), entry("/notes")]);
     }
@@ -690,9 +962,7 @@ mod tests {
     /// Entries without a usable `path` are skipped instead of failing the whole list.
     #[test]
     fn skips_individually_malformed_entries() {
-        let entries = parse_recent_folders(
-            r#"[{"pinned":true},{"path":"/docs"},42]"#,
-        );
+        let entries = parse_recent_folders(r#"[{"pinned":true},{"path":"/docs"},42]"#);
 
         assert_eq!(entries, vec![entry("/docs")]);
     }
@@ -719,20 +989,29 @@ mod tests {
 
         // A previous save from ten minutes ago is stricter than two hours, so it is ignored.
         let ten_minutes_ago = now - Duration::from_secs(600);
-        assert_eq!(new_file_threshold(now, Some(ten_minutes_ago)), two_hours_ago);
+        assert_eq!(
+            new_file_threshold(now, Some(ten_minutes_ago)),
+            two_hours_ago
+        );
     }
 
     /// Files modified after the threshold are flagged new; files modified before it are not.
     #[test]
-    fn scan_directory_flags_files_modified_after_the_threshold() -> Result<(), Box<dyn std::error::Error>>
-    {
+    fn scan_directory_flags_files_modified_after_the_threshold()
+    -> Result<(), Box<dyn std::error::Error>> {
         let temporary = tempfile::tempdir()?;
         fs::write(temporary.path().join("README.md"), "# Read me")?;
 
-        let recent_nodes = scan_directory(temporary.path(), SystemTime::now() - Duration::from_secs(3600))?;
+        let recent_nodes = scan_directory(
+            temporary.path(),
+            SystemTime::now() - Duration::from_secs(3600),
+        )?;
         assert!(recent_nodes[0].is_new);
 
-        let future_nodes = scan_directory(temporary.path(), SystemTime::now() + Duration::from_secs(3600))?;
+        let future_nodes = scan_directory(
+            temporary.path(),
+            SystemTime::now() + Duration::from_secs(3600),
+        )?;
         assert!(!future_nodes[0].is_new);
         Ok(())
     }
@@ -746,7 +1025,10 @@ mod tests {
         promote_document_folder(&mut folders, root.join("guides/reference"));
 
         assert_eq!(
-            folders.into_iter().map(|entry| entry.path).collect::<Vec<_>>(),
+            folders
+                .into_iter()
+                .map(|entry| entry.path)
+                .collect::<Vec<_>>(),
             vec![root, PathBuf::from("other")]
         );
     }
@@ -760,7 +1042,10 @@ mod tests {
         promote_document_folder(&mut folders, separate.clone());
 
         assert_eq!(
-            folders.into_iter().map(|entry| entry.path).collect::<Vec<_>>(),
+            folders
+                .into_iter()
+                .map(|entry| entry.path)
+                .collect::<Vec<_>>(),
             vec![separate, PathBuf::from("docs")]
         );
     }
@@ -806,6 +1091,13 @@ mod tests {
         assert!(!is_open_directory_menu_event("open_file"));
     }
 
+    /// Only the Print menu identifier routes to the browser print dialog event.
+    #[test]
+    fn recognizes_print_menu_event() {
+        assert!(is_print_menu_event("print"));
+        assert!(!is_print_menu_event("open_file"));
+    }
+
     /// Only the About menu identifier routes to the in-application dialog.
     #[test]
     fn recognizes_about_menu_event() {
@@ -820,7 +1112,10 @@ mod tests {
 
         assert!(remove_folder(&mut folders, Path::new("one")));
         assert_eq!(
-            folders.into_iter().map(|entry| entry.path).collect::<Vec<_>>(),
+            folders
+                .into_iter()
+                .map(|entry| entry.path)
+                .collect::<Vec<_>>(),
             vec![PathBuf::from("two")]
         );
         let mut remaining = vec![entry("two")];
@@ -840,5 +1135,110 @@ mod tests {
         );
         assert!(canonical_directory(&file).is_err());
         Ok(())
+    }
+
+    /// Persisted view state round-trips all geometry, sidebar, and document fields.
+    #[test]
+    fn view_state_round_trips_through_json_file() -> Result<(), Box<dyn std::error::Error>> {
+        let temporary = tempfile::tempdir()?;
+        let path = temporary.path().join("nested/view-state.json");
+        let state = ViewState {
+            window: Some(WindowGeometry {
+                width: 1280,
+                height: 800,
+                x: 120,
+                y: 80,
+            }),
+            sidebar_width: Some(310.5),
+            outline_width: Some(260.0),
+            active_document: Some(PathBuf::from("/docs/README.md")),
+        };
+
+        save_view_state_to_path(&path, &state)?;
+
+        assert_eq!(load_view_state_from_path(&path)?, state);
+        Ok(())
+    }
+
+    /// Missing and malformed view-state files fall back to a clean default state.
+    #[test]
+    fn view_state_defaults_when_missing_or_malformed() -> Result<(), Box<dyn std::error::Error>> {
+        let temporary = tempfile::tempdir()?;
+        let path = temporary.path().join("view-state.json");
+
+        assert_eq!(load_view_state_from_path(&path)?, ViewState::default());
+        fs::write(&path, "not json")?;
+        assert_eq!(load_view_state_from_path(&path)?, ViewState::default());
+        Ok(())
+    }
+
+    /// Builds a Markdown file tree node for the search-collection tests.
+    fn file_node(path: &str) -> MarkdownTreeNode {
+        MarkdownTreeNode {
+            name: super::display_name(Path::new(path)),
+            path: PathBuf::from(path),
+            is_directory: false,
+            is_new: false,
+            pinned: false,
+            children: Vec::new(),
+        }
+    }
+
+    /// Flattening a tree yields every Markdown file across nested directories in order.
+    #[test]
+    fn collects_markdown_files_across_nested_directories() {
+        let tree = vec![
+            file_node("/docs/README.md"),
+            MarkdownTreeNode {
+                name: "guides".to_owned(),
+                path: PathBuf::from("/docs/guides"),
+                is_directory: true,
+                is_new: false,
+                pinned: false,
+                children: vec![file_node("/docs/guides/install.md")],
+            },
+        ];
+
+        let mut files = Vec::new();
+        collect_markdown_files(&tree, &mut files);
+
+        assert_eq!(
+            files,
+            vec![
+                PathBuf::from("/docs/README.md"),
+                PathBuf::from("/docs/guides/install.md"),
+            ]
+        );
+    }
+
+    /// Case-insensitive search reports every occurrence with one-based line and column.
+    #[test]
+    fn finds_all_matches_case_insensitively() {
+        let content = "First Alpha line\nno hit here\nalpha and ALPHA again";
+
+        let matches = find_matches_in_content(content, "alpha");
+
+        assert_eq!(matches.len(), 3);
+        assert_eq!((matches[0].line, matches[0].column), (1, 7));
+        assert_eq!(matches[0].line_text, "First Alpha line");
+        assert_eq!((matches[1].line, matches[1].column), (3, 1));
+        assert_eq!((matches[2].line, matches[2].column), (3, 11));
+    }
+
+    /// A blank query yields no matches instead of matching every position.
+    #[test]
+    fn blank_query_yields_no_matches() {
+        assert!(find_matches_in_content("anything at all", "   ").is_empty());
+        assert!(find_matches_in_content("anything at all", "").is_empty());
+    }
+
+    /// Reported matches are capped per file to bound the payload size.
+    #[test]
+    fn caps_matches_per_file() {
+        let content = "x".repeat(MAX_SEARCH_MATCHES_PER_FILE + 20);
+
+        let matches = find_matches_in_content(&content, "x");
+
+        assert_eq!(matches.len(), MAX_SEARCH_MATCHES_PER_FILE);
     }
 }

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   attachSidebarResize,
   clampSidebarWidth,
@@ -45,6 +45,7 @@ describe("attachSidebarResize", () => {
   it("updates the CSS custom property while dragging and stops on pointer up", () => {
     const target = document.createElement("div");
     const handle = document.createElement("div");
+    const onResizeEnd = vi.fn();
     document.body.append(target, handle);
 
     attachSidebarResize({
@@ -54,6 +55,7 @@ describe("attachSidebarResize", () => {
       bounds: { min: 180, max: 480 },
       direction: "grow-right",
       getCurrentWidth: () => 260,
+      onResizeEnd,
     });
 
     handle.dispatchEvent(new MouseEvent("pointerdown", { clientX: 100 }));
@@ -61,6 +63,8 @@ describe("attachSidebarResize", () => {
     expect(target.style.getPropertyValue("--sidebar-width")).toBe("320px");
 
     handle.dispatchEvent(new MouseEvent("pointerup", { clientX: 160 }));
+    expect(onResizeEnd).toHaveBeenCalledOnce();
+    expect(onResizeEnd).toHaveBeenCalledWith(320);
     handle.dispatchEvent(new MouseEvent("pointermove", { clientX: 400 }));
     expect(target.style.getPropertyValue("--sidebar-width")).toBe("320px");
   });
