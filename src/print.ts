@@ -6,7 +6,9 @@ export async function openPrintDialog(
   nativePrint: NativePrint,
   browserPrint: () => void,
   onNativeError: (error: unknown) => void = () => undefined,
+  waitUntilReady: () => Promise<void> = async () => undefined,
 ): Promise<"native" | "browser"> {
+  await waitUntilReady();
   try {
     if (await nativePrint()) {
       return "native";

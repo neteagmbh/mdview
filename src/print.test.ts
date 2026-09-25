@@ -38,4 +38,22 @@ describe("openPrintDialog", () => {
     expect(onNativeError).toHaveBeenCalledWith(failure);
     expect(browserPrint).toHaveBeenCalledOnce();
   });
+
+  it("waits for the document before opening either print dialog", async () => {
+    let finishRendering!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      finishRendering = resolve;
+    });
+    const nativePrint = vi.fn(async () => false);
+    const browserPrint = vi.fn();
+
+    const printing = openPrintDialog(nativePrint, browserPrint, undefined, () => ready);
+    expect(nativePrint).not.toHaveBeenCalled();
+    expect(browserPrint).not.toHaveBeenCalled();
+
+    finishRendering();
+    await expect(printing).resolves.toBe("browser");
+    expect(nativePrint).toHaveBeenCalledOnce();
+    expect(browserPrint).toHaveBeenCalledOnce();
+  });
 });

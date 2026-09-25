@@ -294,6 +294,8 @@ function renderRecentTree(folders: MarkdownTreeNode[]): void {
   });
 }
 
+let pendingDiagramRender: Promise<void> = Promise.resolve();
+
 /** Renders Markdown source in the document view without changing persisted state. */
 async function renderMarkdownSource(
   source: string,
@@ -312,10 +314,11 @@ async function renderMarkdownSource(
   welcome.hidden = true;
   error.hidden = true;
   markdown.hidden = false;
-  printButton.disabled = false;
-  await renderMermaidDiagrams(markdown, {
+  pendingDiagramRender = renderMermaidDiagrams(markdown, {
     dark: window.matchMedia("(prefers-color-scheme: dark)").matches,
   });
+  await pendingDiagramRender;
+  printButton.disabled = false;
   content.scrollTo({ top: 0 });
   markdown.focus();
   renderDocumentOutline();
@@ -531,6 +534,15 @@ function printDocument(): void {
     () => invoke<boolean>("print_document"),
     () => window.print(),
     (printError) => console.error("Could not open native print dialog", printError),
+    async () => {
+      await pendingDiagramRender;
+      await document.fonts.ready;
+      await Promise.all(
+        Array.from(markdown.querySelectorAll("img"), (image) =>
+          image.decode().catch(() => undefined),
+        ),
+      );
+    },
   );
 }
 

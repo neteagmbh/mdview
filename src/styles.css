@@ -1191,6 +1191,7 @@ mark.search-hit-current {
 
   .markdown-body {
     --document-zoom: 1;
+    transform: none;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
