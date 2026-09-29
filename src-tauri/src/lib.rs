@@ -6,10 +6,9 @@ use std::{
     sync::Mutex,
     time::{Duration, SystemTime},
 };
-use tauri::{
-    AppHandle, Emitter, Manager,
-    menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
-};
+#[cfg(desktop)]
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::{AppHandle, Emitter, Manager};
 
 mod watcher;
 
@@ -709,14 +708,14 @@ fn emit_menu_event(app: &AppHandle, id: &str) {
     }
 }
 
-/// Builds and runs the Tauri desktop application.
+/// Builds and runs the Tauri application.
 ///
 /// # Panics
 ///
 /// Panics if Tauri cannot initialize or encounters a fatal runtime error.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(WatcherState::default())
@@ -727,7 +726,9 @@ pub fn run() {
                 restart_watcher(&handle, &folders);
             }
             Ok(())
-        })
+        });
+    #[cfg(desktop)]
+    let builder = builder
         .menu(|app| {
             let menu = Menu::default(app)?;
             let open =
@@ -801,7 +802,8 @@ pub fn run() {
 
             Ok(menu)
         })
-        .on_menu_event(|app, event| emit_menu_event(app, event.id().as_ref()))
+        .on_menu_event(|app, event| emit_menu_event(app, event.id().as_ref()));
+    builder
         .invoke_handler(tauri::generate_handler![
             add_recent_folder,
             load_view_state,
