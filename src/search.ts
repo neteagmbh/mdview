@@ -170,6 +170,54 @@ export function renderSearchResults(
   });
 }
 
+/** Block-level elements used to derive a one-line snippet around an in-file match. */
+const SNIPPET_BLOCK_SELECTOR =
+  "p, li, h1, h2, h3, h4, h5, h6, td, th, dt, dd, pre, blockquote";
+
+/** Returns the surrounding block text of an in-file match, collapsed to one line. */
+function matchSnippet(mark: HTMLElement): string {
+  const block = mark.closest<HTMLElement>(SNIPPET_BLOCK_SELECTOR) ?? mark.parentElement;
+  return (block?.textContent ?? mark.textContent ?? "").replace(/\s+/g, " ").trim();
+}
+
+/** Renders in-file match snippets into the results list, selecting a match on click. */
+export function renderFileMatchList(
+  container: HTMLElement,
+  matches: HTMLElement[],
+  onSelect: (index: number) => void,
+): void {
+  container.replaceChildren();
+
+  if (matches.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "search-results-empty";
+    empty.textContent = "No matches found.";
+    container.append(empty);
+    return;
+  }
+
+  const group = document.createElement("div");
+  group.className = "search-result-group";
+  matches.forEach((mark, index) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "search-result-line";
+
+    const location = document.createElement("span");
+    location.className = "search-result-location";
+    location.textContent = String(index + 1);
+
+    const snippet = document.createElement("span");
+    snippet.className = "search-result-snippet";
+    snippet.textContent = matchSnippet(mark);
+
+    item.append(location, snippet);
+    item.addEventListener("click", () => onSelect(index));
+    group.append(item);
+  });
+  container.append(group);
+}
+
 /** DOM elements and callbacks required to drive the search bar. */
 export interface SearchControllerOptions {
   bar: HTMLElement;
@@ -183,6 +231,8 @@ export interface SearchControllerOptions {
   getContentRoot: () => HTMLElement;
   searchFiles: (query: string, scope: SearchScope) => Promise<FileSearchResult[]>;
   openResult: (path: string) => Promise<void>;
+  /** Invoked whenever the search session opens or closes, e.g. to reveal a sidebar tab. */
+  onOpenChange?: (open: boolean) => void;
 }
 
 /** Imperative handle for opening and closing the search bar from outside the module. */
@@ -191,6 +241,8 @@ export interface SearchController {
   close(): void;
   toggle(): void;
   isOpen(): boolean;
+  /** Re-applies the active query to the current document, e.g. after rendering a new one. */
+  refreshHighlights(): void;
 }
 
 /** Wires the search bar UI to in-file highlighting and backend directory search. */
@@ -207,6 +259,7 @@ export function createSearchController(options: SearchControllerOptions): Search
     getContentRoot,
     searchFiles,
     openResult,
+    onOpenChange,
   } = options;
 
   let matches: HTMLElement[] = [];
@@ -231,11 +284,21 @@ export function createSearchController(options: SearchControllerOptions): Search
     current?.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
-  /** Re-highlights the active document and focuses the first match. */
+  /** Renders the in-file match list, wiring each entry to select and reveal its match. */
+  function renderCurrentFileMatches(): void {
+    renderFileMatchList(results, matches, (index) => {
+      currentIndex = index;
+      updateFileNavigation();
+      revealCurrent();
+    });
+    results.hidden = false;
+  }
+
+  /** Re-highlights the active document, lists the matches, and focuses the first one. */
   function runFileSearch(): void {
-    results.hidden = true;
     matches = highlightFileMatches(getContentRoot(), input.value);
     currentIndex = matches.length > 0 ? 0 : -1;
+    renderCurrentFileMatches();
     updateFileNavigation();
     if (currentIndex >= 0) {
       revealCurrent();
@@ -252,6 +315,22 @@ export function createSearchController(options: SearchControllerOptions): Search
     revealCurrent();
   }
 
+  /**
+   * Re-applies in-file highlighting to the currently shown document while a
+   * search is active, keeping the match list in sync for the file scope.
+   */
+  function refreshHighlights(): void {
+    if (bar.hidden || !input.value.trim()) {
+      return;
+    }
+    matches = highlightFileMatches(getContentRoot(), input.value);
+    currentIndex = matches.length > 0 ? 0 : -1;
+    if (currentScope() === "file") {
+      renderCurrentFileMatches();
+    }
+    updateFileNavigation();
+  }
+
   /** Runs a backend search and renders its results. */
   async function runDirectorySearch(): Promise<void> {
     clearFileSearchHighlights(getContentRoot());
@@ -260,12 +339,13 @@ export function createSearchController(options: SearchControllerOptions): Search
     updateFileNavigation();
 
     const found = await searchFiles(input.value, currentScope());
-    renderSearchResults(results, found, (result) => {
+    renderSearchResults(results, found, (result, match) => {
+      const matchIndex = Math.max(0, result.matches.indexOf(match));
       void openResult(result.path).then(() => {
-        matches = highlightFileMatches(getContentRoot(), input.value);
-        currentIndex = matches.length > 0 ? 0 : -1;
-        updateFileNavigation();
-        if (currentIndex >= 0) {
+        refreshHighlights();
+        if (matches.length > 0) {
+          currentIndex = Math.min(matchIndex, matches.length - 1);
+          updateFileNavigation();
           revealCurrent();
         }
       });
@@ -293,6 +373,7 @@ export function createSearchController(options: SearchControllerOptions): Search
 
   function open(): void {
     bar.hidden = false;
+    onOpenChange?.(true);
     input.focus();
     input.select();
   }
@@ -305,6 +386,7 @@ export function createSearchController(options: SearchControllerOptions): Search
     matches = [];
     currentIndex = -1;
     updateFileNavigation();
+    onOpenChange?.(false);
   }
 
   function toggle(): void {
@@ -336,5 +418,5 @@ export function createSearchController(options: SearchControllerOptions): Search
 
   updateFileNavigation();
 
-  return { open, close, toggle, isOpen: () => !bar.hidden };
+  return { open, close, toggle, isOpen: () => !bar.hidden, refreshHighlights };
 }

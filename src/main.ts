@@ -35,6 +35,7 @@ import {
   updateRecentTreeActivePath,
 } from "./recent-tree";
 import { attachSidebarResize } from "./sidebar-resize";
+import { createSidebarTabs } from "./sidebar-tabs";
 import {
   createSearchController,
   type FileSearchResult,
@@ -83,6 +84,10 @@ const fileName = document.querySelector<HTMLElement>("#file-name")!;
 const linkStatus = document.querySelector<HTMLElement>("#link-status")!;
 const appShell = document.querySelector<HTMLElement>(".app-shell")!;
 const sidebar = document.querySelector<HTMLElement>("#sidebar")!;
+const foldersTab = document.querySelector<HTMLButtonElement>("#folders-tab")!;
+const searchTab = document.querySelector<HTMLButtonElement>("#search-tab")!;
+const foldersPanel = document.querySelector<HTMLElement>("#folders-panel")!;
+const searchPanel = document.querySelector<HTMLElement>("#search-panel")!;
 const sidebarResizeHandle =
   document.querySelector<HTMLElement>("#sidebar-resize-handle")!;
 const outlineResizeHandle =
@@ -272,6 +277,15 @@ function applyZoom(level: number): void {
   zoomInButton.disabled = level === ZOOM_LEVELS[ZOOM_LEVELS.length - 1];
 }
 
+/** Copies text from a tree context-menu action to the system clipboard. */
+async function copyTreeText(text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (copyError) {
+    console.error("Could not copy to clipboard", copyError);
+  }
+}
+
 /** Rebuilds the recent-folder tree while preserving the active file marker. */
 function renderRecentTree(folders: MarkdownTreeNode[]): void {
   tree.replaceChildren();
@@ -287,6 +301,7 @@ function renderRecentTree(folders: MarkdownTreeNode[]): void {
           openFile: (path) => void loadFile(path),
           removeFolder: removeRecentFolder,
           pinFolder: setFolderPinned,
+          copyText: copyTreeText,
         },
         true,
       ),
@@ -322,6 +337,7 @@ async function renderMarkdownSource(
   content.scrollTo({ top: 0 });
   markdown.focus();
   renderDocumentOutline();
+  searchController.refreshHighlights();
 }
 
 /** Displays a license document bundled with the application without updating the LRU. */
@@ -575,6 +591,14 @@ async function searchFiles(query: string, scope: SearchScope): Promise<FileSearc
   return invoke<FileSearchResult[]>("search_markdown_files", { query, root });
 }
 
+const sidebarTabs = createSidebarTabs(
+  {
+    folders: { tab: foldersTab, panel: foldersPanel },
+    search: { tab: searchTab, panel: searchPanel },
+  },
+  "folders",
+);
+
 const searchController = createSearchController({
   bar: searchBar,
   input: searchInput,
@@ -586,21 +610,25 @@ const searchController = createSearchController({
   results: searchResults,
   getContentRoot: () => markdown,
   searchFiles,
-  openResult: (path) => loadFile(path),
+  // Skip reloading when the clicked result is already the active document.
+  openResult: (path) => (path === activePath ? Promise.resolve() : loadFile(path)),
+  onOpenChange: (open) => {
+    if (open) {
+      sidebarTabs.reveal("search");
+    } else {
+      sidebarTabs.conceal("search");
+    }
+    searchToggle.setAttribute("aria-expanded", String(open));
+  },
 });
 
 searchToggle.addEventListener("click", () => {
   searchController.toggle();
-  searchToggle.setAttribute("aria-expanded", String(searchController.isOpen()));
-});
-searchClose.addEventListener("click", () => {
-  searchToggle.setAttribute("aria-expanded", "false");
 });
 document.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
     event.preventDefault();
     searchController.open();
-    searchToggle.setAttribute("aria-expanded", "true");
   }
 });
 let restorePrintDocument: (() => void) | null = null;

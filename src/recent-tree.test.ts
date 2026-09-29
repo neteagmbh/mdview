@@ -37,6 +37,7 @@ describe("createRecentTreeNode", () => {
         openFile: vi.fn(),
         removeFolder,
         pinFolder: vi.fn(),
+        copyText: vi.fn(),
       },
       true,
     );
@@ -66,6 +67,7 @@ describe("createRecentTreeNode", () => {
         openFile: vi.fn(),
         removeFolder: vi.fn(),
         pinFolder,
+        copyText: vi.fn(),
       },
       true,
     );
@@ -94,6 +96,7 @@ describe("createRecentTreeNode", () => {
         openFile,
         removeFolder: vi.fn(),
         pinFolder: vi.fn(),
+        copyText: vi.fn(),
       },
     ) as HTMLButtonElement;
 
@@ -129,6 +132,7 @@ describe("createRecentTreeNode", () => {
       openFile: vi.fn(),
       removeFolder: vi.fn(),
       pinFolder: vi.fn(),
+      copyText: vi.fn(),
     };
 
     const firstRoot = createRecentTreeNode(node, actions, true);
@@ -157,6 +161,82 @@ describe("createRecentTreeNode", () => {
 
     expect(root.querySelectorAll('[aria-current="page"]')).toHaveLength(0);
     expect(root.children).toHaveLength(2);
+  });
+
+  /** Verifies right-clicking a document opens a menu that copies name or full path. */
+  it("copies the document name or path from the context menu", () => {
+    const copyText = vi.fn();
+    const file = createRecentTreeNode(
+      {
+        name: "README.md",
+        path: "/docs/README.md",
+        isDirectory: false,
+        isNew: false,
+        pinned: false,
+        children: [],
+      },
+      {
+        activePath: null,
+        folderOpenState: new Map(),
+        openFile: vi.fn(),
+        removeFolder: vi.fn(),
+        pinFolder: vi.fn(),
+        copyText,
+      },
+    ) as HTMLButtonElement;
+    document.body.append(file);
+
+    file.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    let menu = document.querySelector(".tree-context-menu")!;
+    const items = menu.querySelectorAll<HTMLButtonElement>(".tree-context-menu-item");
+    expect(items).toHaveLength(2);
+
+    items[0].click();
+    expect(copyText).toHaveBeenCalledWith("README.md");
+    expect(document.querySelector(".tree-context-menu")).toBeNull();
+
+    file.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    menu = document.querySelector(".tree-context-menu")!;
+    menu.querySelectorAll<HTMLButtonElement>(".tree-context-menu-item")[1].click();
+    expect(copyText).toHaveBeenCalledWith("/docs/README.md");
+    expect(document.querySelector(".tree-context-menu")).toBeNull();
+
+    file.remove();
+  });
+
+  /** Verifies the context menu closes on Escape and on clicking elsewhere. */
+  it("dismisses the context menu on Escape or an outside click", () => {
+    const file = createRecentTreeNode(
+      {
+        name: "README.md",
+        path: "/docs/README.md",
+        isDirectory: false,
+        isNew: false,
+        pinned: false,
+        children: [],
+      },
+      {
+        activePath: null,
+        folderOpenState: new Map(),
+        openFile: vi.fn(),
+        removeFolder: vi.fn(),
+        pinFolder: vi.fn(),
+        copyText: vi.fn(),
+      },
+    ) as HTMLButtonElement;
+    document.body.append(file);
+
+    file.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    expect(document.querySelector(".tree-context-menu")).not.toBeNull();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(document.querySelector(".tree-context-menu")).toBeNull();
+
+    file.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    expect(document.querySelector(".tree-context-menu")).not.toBeNull();
+    document.body.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    expect(document.querySelector(".tree-context-menu")).toBeNull();
+
+    file.remove();
   });
 });
 

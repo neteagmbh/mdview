@@ -13,6 +13,73 @@ export interface RecentTreeActions {
   openFile: (path: string) => void;
   removeFolder: (path: string, trigger: HTMLButtonElement) => void | Promise<void>;
   pinFolder: (path: string, pinned: boolean, trigger: HTMLButtonElement) => void | Promise<void>;
+  copyText: (text: string) => void | Promise<void>;
+}
+
+/** Removes the currently open tree context menu, if any. */
+export function closeTreeContextMenu(): void {
+  document.querySelector(".tree-context-menu")?.remove();
+}
+
+/**
+ * Opens a context menu at the pointer position offering to copy a document's
+ * name or its full path to the clipboard via the supplied copy action.
+ */
+export function openTreeContextMenu(
+  event: MouseEvent,
+  node: Pick<MarkdownTreeNode, "name" | "path">,
+  copyText: RecentTreeActions["copyText"],
+): void {
+  event.preventDefault();
+  closeTreeContextMenu();
+
+  const menu = document.createElement("div");
+  menu.className = "tree-context-menu";
+  menu.setAttribute("role", "menu");
+
+  const close = () => {
+    menu.remove();
+    document.removeEventListener("pointerdown", onPointerDown, true);
+    document.removeEventListener("keydown", onKeyDown, true);
+  };
+  const onPointerDown = (pointerEvent: PointerEvent) => {
+    if (!menu.contains(pointerEvent.target as Node)) {
+      close();
+    }
+  };
+  const onKeyDown = (keyEvent: KeyboardEvent) => {
+    if (keyEvent.key === "Escape") {
+      close();
+    }
+  };
+
+  const entries: Array<[label: string, text: string]> = [
+    ["Copy Name", node.name],
+    ["Copy Path", node.path],
+  ];
+  entries.forEach(([label, text]) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "tree-context-menu-item";
+    item.setAttribute("role", "menuitem");
+    item.textContent = label;
+    item.addEventListener("click", () => {
+      void copyText(text);
+      close();
+    });
+    menu.append(item);
+  });
+
+  menu.style.left = `${event.clientX}px`;
+  menu.style.top = `${event.clientY}px`;
+  document.body.append(menu);
+  // Keep the menu inside the viewport when opened near the right/bottom edge.
+  const rect = menu.getBoundingClientRect();
+  menu.style.left = `${Math.max(0, Math.min(event.clientX, window.innerWidth - rect.width))}px`;
+  menu.style.top = `${Math.max(0, Math.min(event.clientY, window.innerHeight - rect.height))}px`;
+
+  document.addEventListener("pointerdown", onPointerDown, true);
+  document.addEventListener("keydown", onKeyDown, true);
 }
 
 /** Returns a new array with pinned recent-folder roots ordered before unpinned ones. */
@@ -146,6 +213,9 @@ export function createRecentTreeNode(
   button.dataset.path = node.path;
   button.setAttribute("aria-current", node.path === actions.activePath ? "page" : "false");
   button.addEventListener("click", () => actions.openFile(node.path));
+  button.addEventListener("contextmenu", (event) => {
+    openTreeContextMenu(event, node, actions.copyText);
+  });
 
   const label = document.createElement("span");
   label.textContent = node.name;

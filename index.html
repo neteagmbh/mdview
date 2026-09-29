@@ -68,7 +68,7 @@
         class="icon-button toolbar-icon"
         type="button"
         title="Search (⌘/Ctrl+F)"
-        aria-controls="search-bar"
+        aria-controls="search-panel"
         aria-expanded="false"
       >
         <svg aria-hidden="true" viewBox="0 0 20 20">
@@ -91,69 +91,105 @@
         <span class="visually-hidden">Toggle document outline</span>
       </button>
     </header>
-    <div id="search-bar" class="search-bar" hidden>
-      <svg class="search-bar-icon" aria-hidden="true" viewBox="0 0 20 20">
-        <circle cx="8.5" cy="8.5" r="5" />
-        <path d="M12.2 12.2 17 17" />
-      </svg>
-      <input
-        id="search-input"
-        class="search-input"
-        type="search"
-        placeholder="Search…"
-        aria-label="Search text"
-        autocomplete="off"
-        spellcheck="false"
-      />
-      <label class="visually-hidden" for="search-scope">Search scope</label>
-      <select id="search-scope" class="search-scope">
-        <option value="file">This file</option>
-        <option value="directory">This folder</option>
-        <option value="all">All folders</option>
-      </select>
-      <span id="search-count" class="search-count" aria-live="polite"></span>
-      <button
-        id="search-prev"
-        class="icon-button toolbar-icon"
-        type="button"
-        title="Previous match"
-        disabled
-      >
-        <svg aria-hidden="true" viewBox="0 0 20 20">
-          <path d="M14 12 10 8l-4 4" />
-        </svg>
-        <span class="visually-hidden">Previous match</span>
-      </button>
-      <button
-        id="search-next"
-        class="icon-button toolbar-icon"
-        type="button"
-        title="Next match"
-        disabled
-      >
-        <svg aria-hidden="true" viewBox="0 0 20 20">
-          <path d="M6 8l4 4 4-4" />
-        </svg>
-        <span class="visually-hidden">Next match</span>
-      </button>
-      <button id="search-close" class="icon-button toolbar-icon" type="button" title="Close search (Esc)">
-        <svg aria-hidden="true" viewBox="0 0 20 20">
-          <path d="M5 5l10 10M15 5 5 15" />
-        </svg>
-        <span class="visually-hidden">Close search</span>
-      </button>
-    </div>
-    <div id="search-results" class="search-results" hidden></div>
     <div class="app-shell">
-      <aside id="sidebar" class="sidebar" aria-label="Recent Markdown folders">
-        <div class="sidebar-header">
-          <h2>Recent folders</h2>
-          <button id="refresh-button" class="icon-button" type="button" title="Refresh folders">
-            ↻
+      <aside id="sidebar" class="sidebar" aria-label="Sidebar">
+        <div class="sidebar-tabs" role="tablist" aria-label="Sidebar views">
+          <button
+            id="folders-tab"
+            class="sidebar-tab"
+            type="button"
+            role="tab"
+            aria-selected="true"
+            aria-controls="folders-panel"
+          >
+            Folders
+          </button>
+          <button
+            id="search-tab"
+            class="sidebar-tab"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            aria-controls="search-panel"
+            hidden
+          >
+            Search
           </button>
         </div>
-        <p id="tree-status" class="tree-status">Loading recent folders…</p>
-        <nav id="recent-tree" class="recent-tree" aria-label="Markdown files"></nav>
+        <section
+          id="folders-panel"
+          class="sidebar-panel"
+          role="tabpanel"
+          aria-labelledby="folders-tab"
+          aria-label="Recent Markdown folders"
+        >
+          <div class="sidebar-header">
+            <h2>Recent folders</h2>
+            <button id="refresh-button" class="icon-button" type="button" title="Refresh folders">
+              ↻
+            </button>
+          </div>
+          <p id="tree-status" class="tree-status">Loading recent folders…</p>
+          <nav id="recent-tree" class="recent-tree" aria-label="Markdown files"></nav>
+        </section>
+        <section
+          id="search-panel"
+          class="sidebar-panel"
+          role="tabpanel"
+          aria-labelledby="search-tab"
+          aria-label="Search"
+          hidden
+        >
+          <div id="search-bar" class="search-bar" hidden>
+            <input
+              id="search-input"
+              class="search-input"
+              type="search"
+              placeholder="Search…"
+              aria-label="Search text"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <label class="visually-hidden" for="search-scope">Search scope</label>
+            <select id="search-scope" class="search-scope">
+              <option value="file">This file</option>
+              <option value="directory">This folder</option>
+              <option value="all">All folders</option>
+            </select>
+            <span id="search-count" class="search-count" aria-live="polite"></span>
+            <button
+              id="search-prev"
+              class="icon-button toolbar-icon"
+              type="button"
+              title="Previous match"
+              disabled
+            >
+              <svg aria-hidden="true" viewBox="0 0 20 20">
+                <path d="M14 12 10 8l-4 4" />
+              </svg>
+              <span class="visually-hidden">Previous match</span>
+            </button>
+            <button
+              id="search-next"
+              class="icon-button toolbar-icon"
+              type="button"
+              title="Next match"
+              disabled
+            >
+              <svg aria-hidden="true" viewBox="0 0 20 20">
+                <path d="M6 8l4 4 4-4" />
+              </svg>
+              <span class="visually-hidden">Next match</span>
+            </button>
+            <button id="search-close" class="icon-button toolbar-icon" type="button" title="Close search (Esc)">
+              <svg aria-hidden="true" viewBox="0 0 20 20">
+                <path d="M5 5l10 10M15 5 5 15" />
+              </svg>
+              <span class="visually-hidden">Close search</span>
+            </button>
+          </div>
+          <div id="search-results" class="search-results" hidden></div>
+        </section>
         <div
           id="sidebar-resize-handle"
           class="resize-handle sidebar-resize-handle"
