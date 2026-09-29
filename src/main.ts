@@ -572,7 +572,7 @@ zoomResetButton.addEventListener("click", () => applyZoom(100));
 zoomInButton.addEventListener("click", () => applyZoom(stepZoom(currentZoom, 1)));
 printButton.addEventListener("click", printDocument);
 outlineToggle.addEventListener("click", () => {
-  setOutlineOpen(outlineSidebar.hidden);
+  setOutlineOpen(outlineSidebar.hidden !== false);
 });
 embeddedDocumentLinks.forEach((link) => {
   link.addEventListener("click", (event) => {

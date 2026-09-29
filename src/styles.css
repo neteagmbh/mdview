@@ -1192,6 +1192,18 @@ mark.search-hit-current {
   @page {
     margin: 26mm 18mm 20mm;
 
+    @top-left {
+      content: "";
+    }
+
+    @top-right {
+      content: "";
+    }
+
+    @bottom-left {
+      content: "";
+    }
+
     @bottom-right {
       content: "Page " counter(page) " of " counter(pages);
       font-family:
@@ -1223,11 +1235,8 @@ mark.search-hit-current {
 
   .print-header {
     display: block !important;
-    position: fixed;
-    top: 8mm;
-    left: 18mm;
-    right: 18mm;
     padding-bottom: 3mm;
+    margin-bottom: 6mm;
     border-bottom: 1px solid #d0d3d9;
     color: #60646c;
     font-size: 9pt;
