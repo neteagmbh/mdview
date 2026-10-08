@@ -72,6 +72,89 @@ generated application and DMG with hardened runtime enabled. Keep all signing
 credentials outside the repository. See the
 [Tauri macOS signing guide](https://v2.tauri.app/distribute/sign/macos/).
 
+If DMG packaging fails with `error running bundle_dmg.sh`, rerun with verbose
+output to see the failing disk-image or Finder command:
+
+```sh
+npm run build:macos -- --verbose
+```
+
+The final `bundle_dmg.sh` error is a summary; inspect the preceding output for
+the underlying error before changing signing settings or removing build files.
+
+### iOS / iPad builds
+
+Build on a Mac with full Xcode installed. Open Xcode to complete its initial
+setup and install an iOS simulator runtime in its settings. The app requires
+iPadOS 17 or newer.
+
+Install the dependencies and Rust targets from the project root:
+
+```sh
+npm install
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+brew install cocoapods
+```
+
+If `src-tauri/gen/apple` is missing, initialize the Xcode project:
+
+```sh
+npm run tauri -- ios init
+```
+
+To run in an iPad simulator, disconnect physical iOS devices and select an iPad
+simulator when prompted:
+
+```sh
+npm run tauri -- ios dev
+```
+
+To run on a physical iPad:
+
+1. Connect the iPad by USB, unlock it, and trust the Mac.
+2. Enable **Settings → Privacy & Security → Developer Mode** on the iPad and
+   follow the restart prompts.
+3. Add your Apple account in **Xcode → Settings → Accounts**.
+4. Start the development server and open Xcode:
+
+```sh
+npm run tauri -- ios dev --open --host
+```
+
+In Xcode, select the mdview iOS target, open **Signing & Capabilities**, enable
+**Automatically manage signing**, and select your development team. Select
+your iPad as the run destination and press **⌘R**. An `Apple Development`
+certificate is appropriate for this workflow.
+
+Keep the terminal command running while developing in Xcode. Keep the Mac and
+iPad on the same network and allow the app's local-network permission prompt.
+The Vite configuration already supports the host supplied by Tauri.
+
+Once signing is configured, build a standalone development package:
+
+```sh
+npm run tauri -- ios build --export-method debugging
+```
+
+This build embeds the frontend and does not need the development server.
+Installing it requires a provisioning profile covering your iPad; Xcode
+automatic signing can manage this.
+
+**Open file** and **Open folder** use Apple's Files picker on iPad, including
+iCloud Drive and other document providers. Select a folder to authorize browsing
+its Markdown tree; selecting a single file grants access to that file only.
+The app retains bookmarks to reopen selected documents and folders after a restart.
+Cloud-only documents are downloaded by the provider when opened.
+
+Run the native document-reader unit tests on macOS with:
+
+```sh
+xcrun swift test --package-path src-tauri/plugins/documents
+```
+
+See the [Tauri iOS prerequisites](https://v2.tauri.app/start/prerequisites/#ios),
+[mobile development guide](https://v2.tauri.app/develop/#developing-your-mobile-application),
+and [iOS signing guide](https://v2.tauri.app/distribute/sign/ios/).
 
 ## License
 

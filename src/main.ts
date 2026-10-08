@@ -7,7 +7,6 @@ import {
   PhysicalPosition,
   PhysicalSize,
 } from "@tauri-apps/api/window";
-import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
@@ -36,12 +35,13 @@ import {
 } from "./recent-tree";
 import { attachSidebarResize } from "./sidebar-resize";
 import { createSidebarTabs } from "./sidebar-tabs";
+import { attachSidebarToggle, initializeSidebarVisibility } from "./sidebar-toggle";
 import {
   createSearchController,
   type FileSearchResult,
   type SearchScope,
 } from "./search";
-import { openPrintDialog } from "./print";
+import { openPrintDialog, printWithNativeMargins, waitForPrintLayout } from "./print";
 import { stepZoom, ZOOM_LEVELS, zoomFactor, zoomLabel } from "./zoom";
 import {
   EMPTY_VIEW_STATE,
@@ -84,6 +84,7 @@ const fileName = document.querySelector<HTMLElement>("#file-name")!;
 const linkStatus = document.querySelector<HTMLElement>("#link-status")!;
 const appShell = document.querySelector<HTMLElement>(".app-shell")!;
 const sidebar = document.querySelector<HTMLElement>("#sidebar")!;
+const sidebarToggle = document.querySelector<HTMLButtonElement>("#sidebar-toggle")!;
 const foldersTab = document.querySelector<HTMLButtonElement>("#folders-tab")!;
 const searchTab = document.querySelector<HTMLButtonElement>("#search-tab")!;
 const foldersPanel = document.querySelector<HTMLElement>("#folders-panel")!;
@@ -290,7 +291,7 @@ async function copyTreeText(text: string): Promise<void> {
 function renderRecentTree(folders: MarkdownTreeNode[]): void {
   tree.replaceChildren();
   treeStatus.hidden = folders.length > 0;
-  treeStatus.textContent = "Open a Markdown file to add its folder.";
+  treeStatus.textContent = "Open a folder to browse its Markdown files.";
   sortPinnedFirst(folders).forEach((folder) => {
     tree.append(
       createRecentTreeNode(
@@ -510,10 +511,7 @@ async function openInternalLink(path: string, fragment: string | null): Promise<
 /** Prompts for a directory and adds it to the persisted recent folders. */
 async function chooseDirectory(): Promise<void> {
   try {
-    const selected = await open({
-      multiple: false,
-      directory: true,
-    });
+    const selected = await invoke<string | null>("pick_document", { directory: true });
 
     if (selected) {
       const folders = await invoke<MarkdownTreeNode[]>("add_recent_folder", { path: selected });
@@ -528,36 +526,26 @@ async function chooseDirectory(): Promise<void> {
 
 /** Prompts for a Markdown file and opens the selected document. */
 async function chooseFile(): Promise<void> {
-  const selected = await open({
-    multiple: false,
-    directory: false,
-    filters: [
-      {
-        name: "Markdown",
-        extensions: ["md", "markdown", "mdown", "mkd", "mkdn"],
-      },
-    ],
-  });
-
-  if (selected) {
-    await loadFile(selected);
+  try {
+    const selected = await invoke<string | null>("pick_document", { directory: false });
+    if (selected) {
+      await loadFile(selected);
+    }
+  } catch (error) {
+    showError(error);
   }
 }
 
 /** Opens the platform print dialog, retaining browser printing as a non-macOS fallback. */
 function printDocument(): void {
   void openPrintDialog(
-    () => invoke<boolean>("print_document"),
+    () => printWithNativeMargins(() => invoke<boolean>("print_document")),
     () => window.print(),
     (printError) => console.error("Could not open native print dialog", printError),
     async () => {
       await pendingDiagramRender;
-      await document.fonts.ready;
-      await Promise.all(
-        Array.from(markdown.querySelectorAll("img"), (image) =>
-          image.decode().catch(() => undefined),
-        ),
-      );
+      preparePrintDocument();
+      await waitForPrintLayout(markdown);
     },
   );
 }
@@ -591,6 +579,8 @@ async function searchFiles(query: string, scope: SearchScope): Promise<FileSearc
   return invoke<FileSearchResult[]>("search_markdown_files", { query, root });
 }
 
+const setSidebarOpen = attachSidebarToggle(appShell, sidebar, sidebarToggle);
+initializeSidebarVisibility(setSidebarOpen, setOutlineOpen);
 const sidebarTabs = createSidebarTabs(
   {
     folders: { tab: foldersTab, panel: foldersPanel },
@@ -614,6 +604,7 @@ const searchController = createSearchController({
   openResult: (path) => (path === activePath ? Promise.resolve() : loadFile(path)),
   onOpenChange: (open) => {
     if (open) {
+      setSidebarOpen(true);
       sidebarTabs.reveal("search");
     } else {
       sidebarTabs.conceal("search");
@@ -632,10 +623,11 @@ document.addEventListener("keydown", (event) => {
   }
 });
 let restorePrintDocument: (() => void) | null = null;
-window.addEventListener("beforeprint", () => {
-  restorePrintDocument?.();
-  restorePrintDocument = prepareLightModePrint(markdown);
-});
+/** Prepares print assets once, before the native dialog can measure the document. */
+function preparePrintDocument(): void {
+  restorePrintDocument ??= prepareLightModePrint(markdown);
+}
+window.addEventListener("beforeprint", preparePrintDocument);
 window.addEventListener("afterprint", () => {
   restorePrintDocument?.();
   restorePrintDocument = null;

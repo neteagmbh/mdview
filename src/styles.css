@@ -1,4 +1,5 @@
 :root {
+  --toolbar-height: 54px;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
@@ -51,15 +52,20 @@ button:focus-visible {
   display: flex;
   align-items: center;
   gap: 0.8rem;
-  height: 54px;
+  height: var(--toolbar-height);
   padding: 0 1rem;
   border-bottom: 1px solid #dfe2e7;
   background: rgb(255 255 255 / 92%);
   backdrop-filter: blur(12px);
 }
 
+.document-navigation {
+  display: contents;
+}
+
 .file-name {
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   color: #60646c;
   font-size: 0.9rem;
@@ -110,18 +116,26 @@ button:focus-visible {
 .app-shell {
   display: grid;
   grid-template-columns: var(--sidebar-width, 260px) minmax(0, 1fr) var(--outline-width, 240px);
-  min-height: calc(100vh - 54px);
+  min-height: calc(100vh - var(--toolbar-height));
 }
 
 .app-shell.outline-closed {
   grid-template-columns: var(--sidebar-width, 260px) minmax(0, 1fr);
 }
 
+.app-shell.sidebar-closed {
+  grid-template-columns: minmax(0, 1fr) var(--outline-width, 240px);
+}
+
+.app-shell.sidebar-closed.outline-closed {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .sidebar {
   position: sticky;
-  top: 54px;
+  top: var(--toolbar-height);
   overflow: auto;
-  height: calc(100vh - 54px);
+  height: calc(100vh - var(--toolbar-height));
   padding: 1rem 0.7rem;
   border-right: 1px solid #dfe2e7;
   background: #fff;
@@ -129,9 +143,9 @@ button:focus-visible {
 
 .outline-sidebar {
   position: sticky;
-  top: 54px;
+  top: var(--toolbar-height);
   overflow: auto;
-  height: calc(100vh - 54px);
+  height: calc(100vh - var(--toolbar-height));
   padding: 1rem 0.7rem;
   border-left: 1px solid #dfe2e7;
   background: #fff;
@@ -473,7 +487,7 @@ button:focus-visible {
 .content {
   overflow: auto;
   width: calc(100% - 2rem);
-  height: calc(100vh - 54px);
+  height: calc(100vh - var(--toolbar-height));
   margin: 0 auto;
   padding: 2rem 0 4rem;
   outline: none;
@@ -932,6 +946,68 @@ mark.search-hit-current {
   margin-top: 1.5rem;
 }
 
+@media (max-width: 1100px) and (orientation: portrait), (max-width: 640px) {
+  :root {
+    --toolbar-height: 98px;
+  }
+
+  .toolbar {
+    display: grid;
+    grid-template-columns: repeat(3, max-content) minmax(0, 1fr) repeat(3, max-content);
+    grid-template-rows: 54px 43px;
+    column-gap: 0.4rem;
+    row-gap: 0;
+    padding: 0 0.5rem;
+  }
+
+  #sidebar-toggle {
+    grid-area: 1 / 1;
+  }
+
+  #open-button {
+    grid-area: 1 / 2;
+  }
+
+  #open-directory-button {
+    grid-area: 1 / 3;
+  }
+
+  .toolbar > .zoom-controls {
+    grid-area: 1 / 4;
+    justify-self: end;
+  }
+
+  #print-button {
+    grid-area: 1 / 5;
+  }
+
+  #search-toggle {
+    grid-area: 1 / 6;
+  }
+
+  #outline-toggle {
+    grid-area: 1 / 7;
+  }
+
+  #zoom-reset {
+    display: none;
+  }
+
+  .document-navigation {
+    display: flex;
+    grid-area: 2 / 1 / 3 / -1;
+    align-items: center;
+    gap: 0.8rem;
+    min-width: 0;
+    align-self: stretch;
+    border-top: 1px solid #dfe2e7;
+  }
+
+  .document-navigation .link-status {
+    max-width: 40%;
+  }
+}
+
 @media (max-width: 640px) {
   .content {
     width: calc(100% - 1rem);
@@ -954,10 +1030,14 @@ mark.search-hit-current {
     grid-template-columns: 220px minmax(0, 1fr);
   }
 
+  .app-shell.sidebar-closed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .outline-sidebar {
     position: fixed;
     z-index: 9;
-    top: 54px;
+    top: var(--toolbar-height);
     right: 0;
     width: 240px;
     box-shadow: -8px 0 24px rgb(28 35 48 / 12%);
@@ -987,6 +1067,7 @@ mark.search-hit-current {
 
   button,
   .toolbar,
+  .document-navigation,
   .sidebar,
   .outline-sidebar,
   .welcome,

@@ -9,7 +9,11 @@ use std::{
 #[cfg(desktop)]
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Emitter, Manager};
+#[cfg(not(target_os = "ios"))]
+use tauri_plugin_dialog::DialogExt;
 
+#[cfg(target_os = "macos")]
+mod printing;
 mod watcher;
 
 /// Maximum Markdown document size accepted by the viewer.
@@ -513,13 +517,17 @@ fn recent_markdown_tree(app: AppHandle) -> Result<Vec<MarkdownTreeNode>, String>
 /// Adds or promotes a directory in the persistent recent-folder list.
 #[allow(clippy::needless_pass_by_value)]
 #[tauri::command]
-fn add_recent_folder(app: AppHandle, path: String) -> Result<Vec<MarkdownTreeNode>, String> {
-    let folder = canonical_directory(Path::new(&path))?;
-    let mut folders = load_recent_folders(&app)?;
-    promote_folder(&mut folders, folder);
-    save_recent_folders(&app, &folders)?;
-    restart_watcher(&app, &folders);
-    Ok(build_recent_tree_with_threshold(&app, &folders))
+async fn add_recent_folder(app: AppHandle, path: String) -> Result<Vec<MarkdownTreeNode>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let folder = canonical_directory(Path::new(&path))?;
+        let mut folders = load_recent_folders(&app)?;
+        promote_folder(&mut folders, folder);
+        save_recent_folders(&app, &folders)?;
+        restart_watcher(&app, &folders);
+        Ok(build_recent_tree_with_threshold(&app, &folders))
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 /// Removes a directory from the persistent recent-folder list.
@@ -550,42 +558,104 @@ fn set_recent_folder_pinned(
     Ok(build_recent_tree_with_threshold(&app, &folders))
 }
 
-/// Validates and opens a Markdown file, promotes its covering LRU root, and refreshes the tree.
-#[allow(clippy::needless_pass_by_value)]
+/// Opens the platform document or folder picker without blocking the UI thread.
 #[tauri::command]
-fn open_markdown_file(app: AppHandle, path: String) -> Result<OpenedDocument, String> {
-    let path = PathBuf::from(path);
-    if !is_markdown(&path) {
-        return Err("Choose a file with a Markdown extension.".to_owned());
-    }
+async fn pick_document(app: AppHandle, directory: bool) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(target_os = "ios")]
+        {
+            app.state::<tauri_plugin_documents::Documents<tauri::Wry>>()
+                .pick(directory)
+                .map(|selection| selection.path)
+        }
+        #[cfg(not(target_os = "ios"))]
+        {
+            let picker = app.dialog().file();
+            let selected = if directory {
+                picker.blocking_pick_folder()
+            } else {
+                picker
+                    .add_filter("Markdown", MARKDOWN_EXTENSIONS)
+                    .blocking_pick_file()
+            };
+            selected
+                .map(|path| {
+                    path.into_path()
+                        .map(|path| path.to_string_lossy().into_owned())
+                        .map_err(|error| error.to_string())
+                })
+                .transpose()
+        }
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
 
+/// Reads a bounded Markdown document from a local filesystem.
+#[cfg(not(target_os = "ios"))]
+fn read_local_document(path: &Path) -> Result<(PathBuf, String), String> {
     let metadata =
-        fs::metadata(&path).map_err(|error| format!("Could not inspect file: {error}"))?;
+        fs::metadata(path).map_err(|error| format!("Could not inspect file: {error}"))?;
     if !metadata.is_file() {
         return Err("The selected path is not a file.".to_owned());
     }
     if metadata.len() > MAX_FILE_SIZE {
         return Err("The selected file is larger than 16 MiB.".to_owned());
     }
-
-    let canonical_path =
-        fs::canonicalize(&path).map_err(|error| format!("Could not resolve file path: {error}"))?;
-    let content = fs::read_to_string(&canonical_path)
+    let path =
+        fs::canonicalize(path).map_err(|error| format!("Could not resolve file path: {error}"))?;
+    let content = fs::read_to_string(&path)
         .map_err(|error| format!("Could not read file as UTF-8: {error}"))?;
+    Ok((path, content))
+}
+
+/// Validates the extension and delegates cloud-provider reads to iOS file coordination.
+fn read_document(app: &AppHandle, path: &Path) -> Result<(PathBuf, String), String> {
+    if !is_markdown(path) {
+        return Err("Choose a file with a Markdown extension.".to_owned());
+    }
+    #[cfg(target_os = "ios")]
+    {
+        let document = app
+            .state::<tauri_plugin_documents::Documents<tauri::Wry>>()
+            .read(&path.to_string_lossy(), MAX_FILE_SIZE)?;
+        Ok((PathBuf::from(document.path), document.content))
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        let _ = app;
+        read_local_document(path)
+    }
+}
+
+/// Validates and opens a Markdown file without blocking the picker or cloud download.
+#[tauri::command]
+async fn open_markdown_file(app: AppHandle, path: String) -> Result<OpenedDocument, String> {
+    tauri::async_runtime::spawn_blocking(move || open_document(&app, Path::new(&path)))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+/// Promotes an authorized folder and refreshes the tree after a successful read.
+fn open_document(app: &AppHandle, path: &Path) -> Result<OpenedDocument, String> {
+    let (canonical_path, content) = read_document(app, path)?;
     let folder = canonical_path
         .parent()
         .ok_or_else(|| "The selected file has no parent folder.".to_owned())?
         .to_path_buf();
 
-    let mut folders = load_recent_folders(&app)?;
-    promote_document_folder(&mut folders, folder);
-    save_recent_folders(&app, &folders)?;
-    restart_watcher(&app, &folders);
+    let mut folders = load_recent_folders(app)?;
+    // A file-only iOS grant does not authorize scanning its parent directory.
+    if !cfg!(target_os = "ios") || folders.iter().any(|entry| folder.starts_with(&entry.path)) {
+        promote_document_folder(&mut folders, folder);
+        save_recent_folders(app, &folders)?;
+        restart_watcher(app, &folders);
+    }
 
     Ok(OpenedDocument {
         content,
         path: canonical_path,
-        recent_folders: build_recent_tree_with_threshold(&app, &folders),
+        recent_folders: build_recent_tree_with_threshold(app, &folders),
     })
 }
 
@@ -594,26 +664,24 @@ fn open_markdown_file(app: AppHandle, path: String) -> Result<OpenedDocument, St
 /// Used to auto-reload the currently open document after an external change, which should not
 /// re-promote its folder or restart the watcher on every edit.
 #[tauri::command]
-fn read_markdown_file(path: String) -> Result<String, String> {
-    let path = PathBuf::from(path);
-    if !is_markdown(&path) {
-        return Err("Choose a file with a Markdown extension.".to_owned());
-    }
-    fs::read_to_string(&path).map_err(|error| format!("Could not read file as UTF-8: {error}"))
+async fn read_markdown_file(app: AppHandle, path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        read_document(&app, Path::new(&path)).map(|(_, content)| content)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 /// Opens the native webview print dialog where Tauri supports it.
 ///
-/// macOS uses Wry's native `WKWebView` print operation. Other desktop platforms return
+/// macOS configures the native `WKWebView` print operation. Other desktop platforms return
 /// `false` so the frontend can retain `window.print()` as its cross-platform fallback.
 #[allow(clippy::needless_pass_by_value)]
 #[tauri::command]
 fn print_document(webview: tauri::Webview) -> Result<bool, String> {
     #[cfg(target_os = "macos")]
     {
-        webview
-            .print()
-            .map_err(|error| format!("Could not open print dialog: {error}"))?;
+        printing::open_print_dialog(&webview)?;
         Ok(true)
     }
 
@@ -631,9 +699,20 @@ fn print_document(webview: tauri::Webview) -> Result<bool, String> {
 /// reflect the current on-disk content. Files that cannot be read as UTF-8 are skipped.
 #[allow(clippy::needless_pass_by_value)]
 #[tauri::command]
-fn search_markdown_files(
+async fn search_markdown_files(
     app: AppHandle,
     query: String,
+    root: Option<String>,
+) -> Result<Vec<FileSearchResult>, String> {
+    tauri::async_runtime::spawn_blocking(move || search_documents(&app, &query, root))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+/// Searches authorized roots on a worker thread, coordinating cloud reads on iOS.
+fn search_documents(
+    app: &AppHandle,
+    query: &str,
     root: Option<String>,
 ) -> Result<Vec<FileSearchResult>, String> {
     if query.trim().is_empty() {
@@ -642,7 +721,7 @@ fn search_markdown_files(
 
     let roots = match root {
         Some(root) => vec![canonical_directory(Path::new(&root))?],
-        None => load_recent_folders(&app)?
+        None => load_recent_folders(app)?
             .into_iter()
             .map(|entry| entry.path)
             .collect(),
@@ -659,10 +738,10 @@ fn search_markdown_files(
 
     let mut results = Vec::new();
     for file in files {
-        let Ok(content) = fs::read_to_string(&file) else {
+        let Ok((_, content)) = read_document(app, &file) else {
             continue;
         };
-        let matches = find_matches_in_content(&content, &query);
+        let matches = find_matches_in_content(&content, query);
         if !matches.is_empty() {
             results.push(FileSearchResult {
                 name: display_name(&file),
@@ -717,16 +796,13 @@ fn emit_menu_event(app: &AppHandle, id: &str) {
 pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_opener::init())
-        .manage(WatcherState::default())
-        .setup(|app| {
-            let handle = app.handle().clone();
-            app.manage(NewFileThreshold(compute_new_file_threshold(&handle)));
-            if let Ok(folders) = load_recent_folders(&handle) {
-                restart_watcher(&handle, &folders);
-            }
-            Ok(())
-        });
+        .plugin(tauri_plugin_opener::init());
+    #[cfg(target_os = "ios")]
+    let builder = builder.plugin(tauri_plugin_documents::init());
+    let builder = builder.manage(WatcherState::default()).setup(|app| {
+        initialize_document_state(app);
+        Ok(())
+    });
     #[cfg(desktop)]
     let builder = builder
         .menu(|app| {
@@ -808,6 +884,7 @@ pub fn run() {
             add_recent_folder,
             load_view_state,
             open_markdown_file,
+            pick_document,
             print_document,
             read_markdown_file,
             recent_markdown_tree,
@@ -820,9 +897,56 @@ pub fn run() {
         .expect("error while running mdview");
 }
 
+/// Restores folder watchers and the new-document cutoff after native plugins initialize.
+fn initialize_document_state(app: &mut tauri::App) {
+    let handle = app.handle().clone();
+    app.manage(NewFileThreshold(compute_new_file_threshold(&handle)));
+    if let Ok(folders) = load_recent_folders(&handle) {
+        restart_watcher(&handle, &folders);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     //! Unit tests for Markdown discovery, LRU ordering, and native menu routing.
+
+    /// Verifies filesystem paths containing spaces and Unicode are preserved.
+    #[cfg(not(target_os = "ios"))]
+    #[test]
+    fn local_document_preserves_decoded_paths_and_utf8() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("Über iCloud notes.md");
+        std::fs::write(&path, "# Grüße\n").unwrap();
+        let (resolved, content) = super::read_local_document(&path).unwrap();
+        assert_eq!(resolved, std::fs::canonicalize(path).unwrap());
+        assert_eq!(content, "# Grüße\n");
+    }
+
+    /// Verifies directories, oversized files, and invalid UTF-8 are rejected.
+    #[cfg(not(target_os = "ios"))]
+    #[test]
+    fn local_document_rejects_unreadable_inputs() {
+        let directory = tempfile::tempdir().unwrap();
+        assert!(
+            super::read_local_document(directory.path())
+                .unwrap_err()
+                .contains("not a file")
+        );
+        let path = directory.path().join("invalid.md");
+        std::fs::write(&path, [0xff]).unwrap();
+        assert!(
+            super::read_local_document(&path)
+                .unwrap_err()
+                .contains("UTF-8")
+        );
+        let file = std::fs::File::create(&path).unwrap();
+        file.set_len(super::MAX_FILE_SIZE + 1).unwrap();
+        assert!(
+            super::read_local_document(&path)
+                .unwrap_err()
+                .contains("16 MiB")
+        );
+    }
 
     use super::{
         MAX_RECENT_FOLDERS, MAX_SEARCH_MATCHES_PER_FILE, MarkdownTreeNode, RecentFolderEntry,

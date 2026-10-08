@@ -14,6 +14,28 @@ test("rejects non-macOS hosts", () => {
   );
 });
 
+/** Verifies verbose diagnostics reach Tauri and failed bundle exits remain failures. */
+test("forwards extra build options and preserves a bundling failure", () => {
+  const status = runMacOsBuild({
+    platform: "darwin",
+    environment: {
+      APPLE_SIGNING_IDENTITY: "Developer ID Application: Example",
+      APPLE_ID: "developer@example.com",
+      APPLE_PASSWORD: "app-specific-password",
+      APPLE_TEAM_ID: "TEAMID",
+    },
+    args: ["--verbose"],
+    spawn(command, args) {
+      assert.equal(command, "npm");
+      assert.deepEqual(args, [
+        "run", "tauri", "build", "--", "--bundles", "app,dmg", "--verbose",
+      ]);
+      return { status: 64 };
+    },
+  });
+  assert.equal(status, 64);
+});
+
 /** Verifies the build fails early instead of silently producing an unsigned bundle. */
 test("requires an Apple signing identity", () => {
   assert.throws(

@@ -47,12 +47,13 @@ export function runMacOsBuild({
   platform = process.platform,
   environment = process.env,
   spawn = spawnSync,
+  args = [],
 } = {}) {
   requireMacOsSigningIdentity(platform, environment);
   requireMacOsNotarizationCredentials(environment);
   const result = spawn(
     "npm",
-    ["run", "tauri", "build", "--", "--bundles", "app,dmg"],
+    ["run", "tauri", "build", "--", "--bundles", "app,dmg", ...args],
     {
       env: environment,
       stdio: "inherit",
@@ -68,7 +69,7 @@ export function runMacOsBuild({
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   try {
-    process.exitCode = runMacOsBuild();
+    process.exitCode = runMacOsBuild({ args: process.argv.slice(2) });
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;

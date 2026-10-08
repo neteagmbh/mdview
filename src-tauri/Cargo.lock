@@ -1962,11 +1962,15 @@ name = "mdview"
 version = "0.2.0"
 dependencies = [
  "notify",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "objc2-web-kit",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
+ "tauri-plugin-documents",
  "tauri-plugin-opener",
  "tempfile",
 ]
@@ -3510,6 +3514,16 @@ dependencies = [
  "tauri-plugin-fs",
  "thiserror 2.0.19",
  "url",
+]
+
+[[package]]
+name = "tauri-plugin-documents"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
 ]
 
 [[package]]

@@ -1,5 +1,85 @@
+// @vitest-environment jsdom
+
 import { describe, expect, it, vi } from "vitest";
-import { openPrintDialog } from "./print";
+import { openPrintDialog, printWithNativeMargins, waitForPrintLayout } from "./print";
+import { prepareLightModePrint } from "./clipboard-styles";
+
+describe("printWithNativeMargins", () => {
+  /** Native pagination must inherit AppKit margins until the print sheet closes. */
+  it("keeps the override during native printing and restores it after printing", async () => {
+    const original = document.head.innerHTML;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await expect(printWithNativeMargins(async () => {
+        expect(document.head.lastElementChild?.textContent).toContain("@page { margin: auto; }");
+        return true;
+      })).resolves.toBe(true);
+      expect(document.head.innerHTML).not.toBe(original);
+      window.dispatchEvent(new Event("afterprint"));
+      expect(document.head.innerHTML).toBe(original);
+    }
+  });
+
+  /** Browser fallback must retain the stylesheet's page margins. */
+  it.each([false, new Error("Native printing failed")])("restores margins before fallback: %s", async (result) => {
+    const original = document.head.innerHTML;
+    const browserPrint = vi.fn(() => expect(document.head.innerHTML).toBe(original));
+    await expect(openPrintDialog(
+      () => printWithNativeMargins(async () => {
+        if (result instanceof Error) throw result;
+        return result;
+      }),
+      browserPrint,
+    )).resolves.toBe("browser");
+    expect(browserPrint).toHaveBeenCalledOnce();
+  });
+});
+
+describe("waitForPrintLayout", () => {
+  /** Native printing must wait for replacement diagram images and a completed layout. */
+  it("waits for prepared Mermaid PNGs and two animation frames before printing", async () => {
+    const root = document.createElement("article");
+    root.innerHTML =
+      '<div class="mermaid-diagram" data-clipboard-png="data:image/png;base64,test">' +
+      '<svg></svg></div>';
+    const restore = prepareLightModePrint(root);
+    const image = root.querySelector("img")!;
+    let finishDecode!: () => void;
+    image.decode = vi.fn(() => new Promise<void>((resolve) => {
+      finishDecode = resolve;
+    }));
+    const originalFonts = Object.getOwnPropertyDescriptor(document, "fonts");
+    Object.defineProperty(document, "fonts", {
+      configurable: true,
+      value: { ready: Promise.resolve() },
+    });
+    const frames: FrameRequestCallback[] = [];
+    const animationFrame = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    const nativePrint = vi.fn(async () => true);
+    try {
+      const printing = openPrintDialog(nativePrint, vi.fn(), undefined, () => waitForPrintLayout(root));
+      await vi.waitFor(() => expect(image.decode).toHaveBeenCalledOnce());
+      expect(nativePrint).not.toHaveBeenCalled();
+      finishDecode();
+      await vi.waitFor(() => expect(frames).toHaveLength(1));
+      frames.shift()!(0);
+      expect(nativePrint).not.toHaveBeenCalled();
+      frames.shift()!(0);
+      await expect(printing).resolves.toBe("native");
+      expect(nativePrint).toHaveBeenCalledOnce();
+    } finally {
+      restore();
+      animationFrame.mockRestore();
+      if (originalFonts) {
+        Object.defineProperty(document, "fonts", originalFonts);
+      } else {
+        Reflect.deleteProperty(document, "fonts");
+      }
+    }
+  });
+});
 
 describe("openPrintDialog", () => {
   /** A supported native backend handles printing without the browser fallback. */

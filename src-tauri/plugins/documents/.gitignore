@@ -1,0 +1,4 @@
+.tauri/
+.build/
+ios/.build/
+target/
