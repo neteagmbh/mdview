@@ -140,13 +140,37 @@ This build embeds the frontend and does not need the development server.
 Installing it requires a provisioning profile covering your iPad; Xcode
 automatic signing can manage this.
 
+With Xcode 27 / Swift 6.4, release builds can fail to link Swift bridge symbols
+such as `retain_object`, `release_object`, and `string_from_bytes`. Until the
+[upstream visibility issue](https://github.com/tauri-apps/tauri/issues/16130) is
+resolved, enable minimal Rust debug information for the release build:
+
+```sh
+CARGO_PROFILE_RELEASE_DEBUG=line-tables-only \
+  npm run tauri -- ios build --export-method debugging
+```
+
+Rust keeps its release optimizations. The `swift-rs` build integration selects
+the debug configuration for its Swift packages when Rust debug information is
+enabled, avoiding the affected Swift release compilation.
+
+The IPA is generated in `src-tauri/gen/apple/build/arm64/`. Install it through
+**Xcode → Open Developer Tool → Device Hub**. Select your iPad, click the
+**ⓘ (Info)** toolbar button, select **Apps**, and click **Add** to choose the IPA.
+Older Xcode versions use **Window → Devices and Simulators → your iPad →
+Installed Apps → +** instead.
+
 **Open file** and **Open folder** use Apple's Files picker on iPad, including
 iCloud Drive and other document providers. Select a folder to authorize browsing
 its Markdown tree; selecting a single file grants access to that file only.
 The app retains bookmarks to reopen selected documents and folders after a restart.
 Cloud-only documents are downloaded by the provider when opened.
 
-Run the native document-reader unit tests on macOS with:
+**Print** opens the native AirPrint dialog on iPad. Printing uses light colors
+and light Mermaid images while the document on screen keeps its current theme.
+Closing or cancelling the dialog restores the temporary print resources.
+
+Run the native document-reader and print-completion unit tests on macOS with:
 
 ```sh
 xcrun swift test --package-path src-tauri/plugins/documents

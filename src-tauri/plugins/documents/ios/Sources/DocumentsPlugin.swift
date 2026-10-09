@@ -2,6 +2,7 @@ import Foundation
 import Tauri
 import UIKit
 import UniformTypeIdentifiers
+import WebKit
 
 /// Options for selecting a single document or a folder in Apple's Files UI.
 private struct PickOptions: Decodable {
@@ -25,6 +26,41 @@ final class DocumentsPlugin: Plugin, UIDocumentPickerDelegate {
     private var restoredURLs: [String: URL] = [:]
     /// Pending picker request; simultaneous presentations are rejected.
     private var pending: Invoke?
+    /// Webview supplied by Tauri, used as the source of native print formatters.
+    private weak var printWebView: WKWebView?
+    /// Retains the print delegate and formatter until the AirPrint dialog closes.
+    private var printer: DocumentPrinting?
+
+    /// Captures the app webview without taking ownership of its lifecycle.
+    override func load(webview: WKWebView) {
+        printWebView = webview
+    }
+
+    /// Opens the native AirPrint UI instead of relying on JavaScript window.print().
+    @objc public func print(_ invoke: Invoke) {
+        DispatchQueue.main.async {
+            guard self.printer == nil else {
+                invoke.reject("A print dialog is already open.")
+                return
+            }
+            guard let webView = self.printWebView,
+                  let presenter = self.manager.viewController,
+                  presenter.presentedViewController == nil else {
+                invoke.reject("The print dialog cannot be presented right now.")
+                return
+            }
+            let printer = DocumentPrinting(webView: webView, presenter: presenter) { [weak self] error in
+                self?.printer = nil
+                if let error {
+                    invoke.reject("Could not print the document: \(error.localizedDescription)")
+                } else {
+                    invoke.resolve()
+                }
+            }
+            self.printer = printer
+            printer.start()
+        }
+    }
 
     /// Restores grants before Rust tries to load the last document or recent folders.
     override init() {
@@ -130,6 +166,6 @@ final class DocumentsPlugin: Plugin, UIDocumentPickerDelegate {
 /// Entry point called by Tauri when registering the native plugin.
 @_cdecl("init_plugin_documents")
 @available(iOS 17.0, *)
-func initDocumentsPlugin() -> Plugin {
+public func initDocumentsPlugin() -> Plugin {
     DocumentsPlugin()
 }

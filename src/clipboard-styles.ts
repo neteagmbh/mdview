@@ -28,6 +28,7 @@ export function applyLightModeExportColors(element: HTMLElement): () => void {
  * collapses to the bare text content of its SVG nodes.
  */
 function replaceMermaidDiagramsWithImages(container: HTMLElement): void {
+  container.querySelectorAll(".mermaid-print-image").forEach((image) => image.remove());
   container.querySelectorAll<HTMLElement>(".mermaid-diagram").forEach((diagram) => {
     const pngDataUrl = diagram.dataset.clipboardPng;
     const svg = diagram.querySelector("svg");
@@ -41,10 +42,9 @@ function replaceMermaidDiagramsWithImages(container: HTMLElement): void {
   });
 }
 
-/** Prepares a live document for light-mode printing and returns a complete restore function. */
+/** Adds print-only light Mermaid images while leaving screen colors and SVGs untouched. */
 export function prepareLightModePrint(root: HTMLElement): () => void {
-  const restoreColors = applyLightModeExportColors(root);
-  const replacements: Array<{ image: HTMLImageElement; svg: SVGSVGElement }> = [];
+  const images: HTMLImageElement[] = [];
 
   root.querySelectorAll<HTMLElement>(".mermaid-diagram").forEach((diagram) => {
     const pngDataUrl = diagram.dataset.clipboardPng;
@@ -52,16 +52,17 @@ export function prepareLightModePrint(root: HTMLElement): () => void {
     if (!pngDataUrl || !svg) {
       return;
     }
-    const image = document.createElement("img");
+    const image = root.ownerDocument.createElement("img");
     image.src = pngDataUrl;
     image.alt = "Mermaid diagram";
-    svg.replaceWith(image);
-    replacements.push({ image, svg });
+    image.className = "mermaid-print-image";
+    image.setAttribute("aria-hidden", "true");
+    svg.before(image);
+    images.push(image);
   });
 
   return () => {
-    replacements.forEach(({ image, svg }) => image.replaceWith(svg));
-    restoreColors();
+    images.forEach((image) => image.remove());
   };
 }
 

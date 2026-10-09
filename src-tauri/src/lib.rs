@@ -674,18 +674,31 @@ async fn read_markdown_file(app: AppHandle, path: String) -> Result<String, Stri
 
 /// Opens the native webview print dialog where Tauri supports it.
 ///
-/// macOS configures the native `WKWebView` print operation. Other desktop platforms return
-/// `false` so the frontend can retain `window.print()` as its cross-platform fallback.
+/// macOS uses `AppKit` and iOS presents AirPrint. Other platforms return `false`
+/// so the frontend can retain `window.print()` as its cross-platform fallback.
 #[allow(clippy::needless_pass_by_value)]
 #[tauri::command]
-fn print_document(webview: tauri::Webview) -> Result<bool, String> {
+async fn print_document(webview: tauri::Webview) -> Result<bool, String> {
     #[cfg(target_os = "macos")]
     {
         printing::open_print_dialog(&webview)?;
         Ok(true)
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "ios")]
+    {
+        // Wait for UIKit's completion callback without blocking the UI or async executor.
+        tauri::async_runtime::spawn_blocking(move || {
+            webview
+                .state::<tauri_plugin_documents::Documents<tauri::Wry>>()
+                .print()?;
+            Ok(true)
+        })
+        .await
+        .map_err(|error| format!("Could not complete native printing: {error}"))?
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
     {
         let _ = webview;
         Ok(false)

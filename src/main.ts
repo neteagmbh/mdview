@@ -536,7 +536,7 @@ async function chooseFile(): Promise<void> {
   }
 }
 
-/** Opens the platform print dialog, retaining browser printing as a non-macOS fallback. */
+/** Opens native desktop/mobile printing or the browser fallback on unsupported platforms. */
 function printDocument(): void {
   void openPrintDialog(
     () => printWithNativeMargins(() => invoke<boolean>("print_document")),
@@ -547,7 +547,14 @@ function printDocument(): void {
       preparePrintDocument();
       await waitForPrintLayout(markdown);
     },
-  );
+  ).catch((printError) => {
+    restorePrintDocument?.();
+    restorePrintDocument = null;
+    error.textContent = `Could not open print dialog: ${
+      printError instanceof Error ? printError.message : String(printError)
+    }`;
+    error.hidden = false;
+  });
 }
 
 openButton.addEventListener("click", () => void chooseFile());

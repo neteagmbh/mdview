@@ -26,8 +26,8 @@ describe("applyLightModeExportColors", () => {
 });
 
 describe("prepareLightModePrint", () => {
-  /** Verifies live diagrams use their light PNG for printing and are restored afterwards. */
-  it("prepares and restores document colors and Mermaid diagrams", () => {
+  /** Print preparation keeps dark screen colors and the original interactive SVG intact. */
+  it("adds light print images without changing screen colors or Mermaid diagrams", () => {
     const root = document.createElement("article");
     root.style.color = "white";
     root.style.backgroundColor = "black";
@@ -35,20 +35,66 @@ describe("prepareLightModePrint", () => {
       '<div class="mermaid-diagram" data-clipboard-png="data:image/png;base64,fake">' +
       "<svg><text>diagram</text></svg></div>";
 
+    const originalSvg = root.querySelector("svg");
+    const originalStyle = root.getAttribute("style");
     const restore = prepareLightModePrint(root);
 
-    expect(root.style.color).toBe("rgb(32, 33, 36)");
-    expect(root.querySelector("svg")).toBeNull();
+    expect(root.getAttribute("style")).toBe(originalStyle);
+    expect(root.querySelector("svg")).toBe(originalSvg);
     expect(root.querySelector("img")?.src).toBe("data:image/png;base64,fake");
+    expect(root.querySelector("img")?.className).toBe("mermaid-print-image");
+    expect(root.querySelector("img")?.getAttribute("aria-hidden")).toBe("true");
+    expect(originalSvg?.previousElementSibling).toBe(root.querySelector("img"));
 
     restore();
     expect(root.style.color).toBe("white");
     expect(root.style.backgroundColor).toBe("black");
+    expect(root.querySelector("img")).toBeNull();
+    expect(root.querySelector("svg")).toBe(originalSvg);
     expect(root.querySelector(".mermaid-diagram svg")?.textContent).toBe("diagram");
+  });
+
+  /** Closing one print dialog must leave the next attempt with a single export image. */
+  it("supports repeated preparation and cleanup without duplicating images", () => {
+    const root = document.createElement("article");
+    root.innerHTML =
+      '<div class="mermaid-diagram" data-clipboard-png="data:image/png;base64,fake">' +
+      "<svg></svg></div>";
+    const original = root.innerHTML;
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const restore = prepareLightModePrint(root);
+      expect(root.querySelectorAll(".mermaid-print-image")).toHaveLength(1);
+      restore();
+      restore();
+      expect(root.innerHTML).toBe(original);
+    }
   });
 });
 
 describe("buildLightModeClipboardHtml", () => {
+  /** Hidden print assets must not duplicate Mermaid diagrams in the clipboard payload. */
+  it("excludes temporary print images from copied content", () => {
+    const container = document.createElement("article");
+    container.innerHTML =
+      '<div class="mermaid-diagram" data-clipboard-png="data:image/png;base64,fake">' +
+      "<svg></svg></div>";
+    document.body.append(container);
+    const restore = prepareLightModePrint(container);
+    const range = document.createRange();
+    range.selectNodeContents(container);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    const html = buildLightModeClipboardHtml(selection)!;
+
+    expect(html.match(/<img /g)).toHaveLength(1);
+    expect(html).not.toContain("mermaid-print-image");
+    expect(container.querySelector(".mermaid-print-image")).not.toBeNull();
+    restore();
+  });
+
   /** Verifies copied content carries explicit light-mode colors instead of the app theme. */
   it("wraps the selected content in explicit light-mode colors", () => {
     const container = document.createElement("article");

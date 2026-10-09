@@ -53,6 +53,7 @@ export async function openPrintDialog(
     }
   } catch (error) {
     onNativeError(error);
+    throw error;
   }
 
   browserPrint();

@@ -20,17 +20,26 @@ describe("printWithNativeMargins", () => {
   });
 
   /** Browser fallback must retain the stylesheet's page margins. */
-  it.each([false, new Error("Native printing failed")])("restores margins before fallback: %s", async (result) => {
+  it("restores margins before the unsupported-platform fallback", async () => {
     const original = document.head.innerHTML;
     const browserPrint = vi.fn(() => expect(document.head.innerHTML).toBe(original));
     await expect(openPrintDialog(
       () => printWithNativeMargins(async () => {
-        if (result instanceof Error) throw result;
-        return result;
+        return false;
       }),
       browserPrint,
     )).resolves.toBe("browser");
     expect(browserPrint).toHaveBeenCalledOnce();
+  });
+
+  /** Native failures release temporary print styles without invoking an unsupported fallback. */
+  it("restores margins when the native dialog fails", async () => {
+    const original = document.head.innerHTML;
+    const failure = new Error("Native printing failed");
+    await expect(printWithNativeMargins(async () => {
+      throw failure;
+    })).rejects.toBe(failure);
+    expect(document.head.innerHTML).toBe(original);
   });
 });
 
@@ -102,21 +111,20 @@ describe("openPrintDialog", () => {
     expect(browserPrint).toHaveBeenCalledOnce();
   });
 
-  /** Native command failures are reported before the browser fallback runs. */
-  it("reports native errors and falls back", async () => {
+  /** Native failures must remain visible instead of calling window.print() on iOS. */
+  it("reports native errors without invoking browser printing", async () => {
     const failure = new Error("native print failed");
     const browserPrint = vi.fn();
     const onNativeError = vi.fn();
 
-    const result = await openPrintDialog(
+    await expect(openPrintDialog(
       async () => Promise.reject(failure),
       browserPrint,
       onNativeError,
-    );
+    )).rejects.toBe(failure);
 
-    expect(result).toBe("browser");
     expect(onNativeError).toHaveBeenCalledWith(failure);
-    expect(browserPrint).toHaveBeenCalledOnce();
+    expect(browserPrint).not.toHaveBeenCalled();
   });
 
   it("waits for the document before opening either print dialog", async () => {

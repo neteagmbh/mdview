@@ -1269,6 +1269,11 @@ mark.search-hit-current {
   }
 }
 
+/* Prepared export images must not change the document behind the print dialog. */
+.mermaid-print-image {
+  display: none;
+}
+
 @media print {
   @page {
     margin: 26mm 18mm 20mm;
@@ -1371,6 +1376,14 @@ mark.search-hit-current {
 
   .markdown-body :is(pre, table, img, .mermaid-diagram) {
     break-inside: avoid;
+  }
+
+  .mermaid-diagram > .mermaid-print-image {
+    display: block;
+  }
+
+  .mermaid-diagram > .mermaid-print-image + svg {
+    display: none;
   }
 }
 

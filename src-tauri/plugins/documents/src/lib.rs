@@ -1,4 +1,4 @@
-//! Native iOS document selection and coordinated file-provider reads.
+//! Native iOS document selection, coordinated file-provider reads, and AirPrint.
 
 use serde::Deserialize;
 use tauri::{
@@ -28,6 +28,13 @@ pub struct Document {
 }
 
 impl<R: Runtime> Documents<R> {
+    /// Presents AirPrint and waits until its dialog is closed or cancelled.
+    pub fn print(&self) -> Result<(), String> {
+        self.0
+            .run_mobile_plugin("print", serde_json::json!({}))
+            .map_err(|error| error.to_string())
+    }
+
     /// Presents Apple's Files picker for a single file or directory.
     pub fn pick(&self, directory: bool) -> Result<Selection, String> {
         self.0
