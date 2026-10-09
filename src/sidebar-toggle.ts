@@ -28,7 +28,7 @@ export function attachSidebarToggle(
     toggle.setAttribute("aria-label", label);
   }
 
-  toggle.addEventListener("click", () => setOpen(sidebar.hidden));
+  toggle.addEventListener("click", () => setOpen(Boolean(sidebar.hidden)));
   setOpen(!sidebar.hidden);
   return setOpen;
 }

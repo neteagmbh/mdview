@@ -60,6 +60,18 @@ describe("sidebar toggle", () => {
     expect(toggle.getAttribute("aria-label")).toBe("Close sidebar");
   });
 
+  it("reveals a sidebar hidden until found when the toggle is clicked", () => {
+    const { shell, sidebar, toggle } = fixture();
+    sidebar.hidden = "until-found";
+
+    toggle.click();
+
+    expect(sidebar.hidden).toBe(false);
+    expect(shell.classList.contains("sidebar-closed")).toBe(false);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(toggle.getAttribute("aria-label")).toBe("Close sidebar");
+  });
+
   it("moves focus out of a collapsing sidebar and can reveal it for search", () => {
     const { sidebar, toggle, setOpen } = fixture();
     sidebar.querySelector("button")!.focus();
