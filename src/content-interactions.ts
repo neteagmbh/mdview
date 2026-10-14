@@ -11,7 +11,7 @@ export type LinkClassification =
 function toFileUrl(path: string): URL {
   const normalized = path.replace(/\\/g, "/");
   const withLeadingSlash = normalized.startsWith("/") ? normalized : `/${normalized}`;
-  return new URL(`file://${withLeadingSlash}`);
+  return new URL(`file://${withLeadingSlash.split("/").map(encodeURIComponent).join("/")}`);
 }
 
 /** Converts a resolved `file://` URL back into a display path matching the source path's style. */

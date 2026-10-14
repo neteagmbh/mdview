@@ -15,6 +15,11 @@ private struct ReadOptions: Decodable {
     let maxSize: Int
 }
 
+/// The original file URL supplied by an OS Open In request.
+private struct OpenOptions: Decodable {
+    let url: String
+}
+
 /// Owns document-picker callbacks and long-lived security-scoped grants.
 @available(iOS 17.0, *)
 final class DocumentsPlugin: Plugin, UIDocumentPickerDelegate {
@@ -85,11 +90,52 @@ final class DocumentsPlugin: Plugin, UIDocumentPickerDelegate {
             }
         }
         UserDefaults.standard.set(bookmarks, forKey: bookmarkKey)
+        if !DocumentOpenHook.install(receive: { [weak self] url in
+            guard let self else { return }
+            do {
+                try self.retainDocument(url)
+            } catch {
+                NSLog("Could not retain incoming Markdown document: %@", error.localizedDescription)
+            }
+        }) {
+            NSLog("Could not install the Tauri document URL access hook")
+        }
     }
 
     /// Balances each successfully acquired security scope.
     deinit {
         for url in scopes.values { url.stopAccessingSecurityScopedResource() }
+    }
+
+    /// Persists access while keeping the original NSURL security-scoped resource alive.
+    private func retainDocument(_ url: URL) throws {
+        let started = url.startAccessingSecurityScopedResource()
+        do {
+            let bookmark = try url.bookmarkData(options: .minimalBookmark,
+                                               includingResourceValuesForKeys: nil, relativeTo: nil)
+            var bookmarks = UserDefaults.standard.dictionary(forKey: bookmarkKey) as? [String: Data] ?? [:]
+            bookmarks[url.path] = bookmark
+            UserDefaults.standard.set(bookmarks, forKey: bookmarkKey)
+            if started {
+                scopes[url.path]?.stopAccessingSecurityScopedResource()
+                scopes[url.path] = url
+            }
+            restoredURLs[url.path] = url
+        } catch {
+            if started { url.stopAccessingSecurityScopedResource() }
+            throw error
+        }
+    }
+
+    /// Resolves an OS document through the retained original URL rather than reconstructing its grant.
+    @objc public func accept(_ invoke: Invoke) throws {
+        let options = try invoke.parseArgs(OpenOptions.self)
+        guard let url = URL(string: options.url), url.isFileURL else {
+            invoke.reject("Only local Markdown file URLs can be opened.")
+            return
+        }
+        try retainDocument(restoredURLs[url.path] ?? url)
+        invoke.resolve(["path": url.path])
     }
 
     /// Presents a folder picker or an in-place document picker, including iCloud Drive.
@@ -123,21 +169,10 @@ final class DocumentsPlugin: Plugin, UIDocumentPickerDelegate {
             invoke.resolve(["path": NSNull()])
             return
         }
-        let started = url.startAccessingSecurityScopedResource()
         do {
-            let bookmark = try url.bookmarkData(options: .minimalBookmark,
-                                               includingResourceValuesForKeys: nil, relativeTo: nil)
-            var bookmarks = UserDefaults.standard.dictionary(forKey: bookmarkKey) as? [String: Data] ?? [:]
-            bookmarks[url.path] = bookmark
-            UserDefaults.standard.set(bookmarks, forKey: bookmarkKey)
-            if started {
-                scopes[url.path]?.stopAccessingSecurityScopedResource()
-                scopes[url.path] = url
-            }
-            restoredURLs[url.path] = url
+            try retainDocument(url)
             invoke.resolve(["path": url.path])
         } catch {
-            if started { url.stopAccessingSecurityScopedResource() }
             invoke.reject("Could not retain access to the selected document: \(error.localizedDescription)")
         }
     }

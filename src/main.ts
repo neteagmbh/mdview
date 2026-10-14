@@ -20,6 +20,8 @@ import { attachContentInteractions } from "./content-interactions";
 import { renderMermaidDiagrams } from "./diagrams";
 import { getEmbeddedDocument, type EmbeddedDocumentId } from "./embedded-documents";
 import { highlightCode } from "./markdown";
+import { resolveMarkdownImages } from "./markdown-images";
+import { initializeIncomingDocuments } from "./incoming-documents";
 import { handleDocumentScrollKey } from "./keyboard-scroll";
 import { createImagePopoutController } from "./image-popout";
 import {
@@ -323,6 +325,7 @@ async function renderMarkdownSource(
   activePath = path;
   updateRecentTreeActivePath(tree, activePath);
   markdown.innerHTML = DOMPurify.sanitize(rendered);
+  resolveMarkdownImages(markdown, path);
   fileName.textContent = title;
   fileName.title = path ?? title;
   printHeader.textContent = `${title} — ${new Date().toLocaleDateString()}`;
@@ -413,15 +416,21 @@ async function refreshRecentTree(): Promise<void> {
 async function loadFile(path: string): Promise<void> {
   try {
     const document = await invoke<OpenedDocument>("open_markdown_file", { path });
-    await renderMarkdownSource(document.content, basename(document.path), document.path);
-    renderRecentTree(document.recentFolders);
-    updateViewState({ activeDocument: document.path });
+    await displayOpenedDocument(document);
   } catch (loadError) {
     if (viewState.activeDocument === path) {
       updateViewState({ activeDocument: null });
     }
     showError(loadError);
   }
+}
+
+/** Displays a validated picker or OS document through the same persistence and rendering path. */
+async function displayOpenedDocument(document: OpenedDocument): Promise<void> {
+  linkStatus.hidden = true;
+  await renderMarkdownSource(document.content, basename(document.path), document.path);
+  renderRecentTree(document.recentFolders);
+  updateViewState({ activeDocument: document.path });
 }
 
 /** Restores persisted layout and document state, then starts observing window changes. */
@@ -469,9 +478,6 @@ async function initializeViewState(): Promise<void> {
   }
 
   await refreshRecentTree();
-  if (viewState.activeDocument) {
-    await loadFile(viewState.activeDocument);
-  }
 }
 
 /**
@@ -706,4 +712,24 @@ attachSidebarResize({
   getCurrentWidth: () => outlineSidebar.getBoundingClientRect().width,
   onResizeEnd: (outlineWidth) => updateViewState({ outlineWidth }),
 });
-void initializeViewState();
+void initializeIncomingDocuments({
+  listen: (notify) => listen("incoming-documents", notify),
+  take: () => invoke<string[]>("take_incoming_documents"),
+  initializeLayout: initializeViewState,
+  restoreDocument: async () => {
+    if (viewState.activeDocument) {
+      await loadFile(viewState.activeDocument);
+    }
+  },
+  open: async (url) => {
+    const document = await invoke<OpenedDocument>("open_incoming_document", { url });
+    await displayOpenedDocument(document);
+  },
+  reportAdditional: (count) => {
+    window.clearTimeout(linkStatusTimeout);
+    linkStatus.textContent = `${count} additional file(s) were supplied; open each file individually to view it.`;
+    linkStatus.title = linkStatus.textContent;
+    linkStatus.hidden = false;
+  },
+  reportError: showError,
+}).catch(showError);

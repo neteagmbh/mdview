@@ -21,7 +21,11 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' asset: https: data:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost"
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost https: data:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost",
+      "assetProtocol": {
+        "enable": true,
+        "scope": []
+      }
     }
   },
   "bundle": {
@@ -29,6 +33,17 @@
     "targets": "all",
     "category": "Utility",
     "shortDescription": "View Markdown files in a native window",
+    "fileAssociations": [
+      {
+        "ext": ["md", "markdown", "mdown", "mkd", "mkdn"],
+        "contentTypes": ["net.daringfireball.markdown"],
+        "name": "Markdown document",
+        "description": "Markdown document",
+        "mimeType": "text/markdown",
+        "role": "Viewer",
+        "rank": "Alternate"
+      }
+    ],
     "macOS": {
       "hardenedRuntime": true
     },

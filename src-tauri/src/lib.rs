@@ -12,6 +12,7 @@ use tauri::{AppHandle, Emitter, Manager};
 #[cfg(not(target_os = "ios"))]
 use tauri_plugin_dialog::DialogExt;
 
+mod incoming_documents;
 #[cfg(target_os = "macos")]
 mod printing;
 mod watcher;
@@ -644,6 +645,10 @@ fn open_document(app: &AppHandle, path: &Path) -> Result<OpenedDocument, String>
         .ok_or_else(|| "The selected file has no parent folder.".to_owned())?
         .to_path_buf();
 
+    app.asset_protocol_scope()
+        .allow_directory(&folder, true)
+        .map_err(|error| format!("Could not allow document images: {error}"))?;
+
     let mut folders = load_recent_folders(app)?;
     // A file-only iOS grant does not authorize scanning its parent directory.
     if !cfg!(target_os = "ios") || folders.iter().any(|entry| folder.starts_with(&entry.path)) {
@@ -807,13 +812,33 @@ fn emit_menu_event(app: &AppHandle, id: &str) {
 /// Panics if Tauri cannot initialize or encounters a fatal runtime error.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default()
+    let builder =
+        tauri::Builder::default().manage(incoming_documents::IncomingDocuments::default());
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+        incoming_documents::enqueue(
+            app,
+            incoming_documents::argument_urls(
+                args.into_iter().map(std::ffi::OsString::from),
+                Path::new(&cwd),
+            ),
+        );
+        incoming_documents::focus_window(app);
+    }));
+    let builder = builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init());
     #[cfg(target_os = "ios")]
     let builder = builder.plugin(tauri_plugin_documents::init());
     let builder = builder.manage(WatcherState::default()).setup(|app| {
         initialize_document_state(app);
+        #[cfg(desktop)]
+        if let Ok(cwd) = std::env::current_dir() {
+            incoming_documents::enqueue(
+                app.handle(),
+                incoming_documents::argument_urls(std::env::args_os(), &cwd),
+            );
+        }
         Ok(())
     });
     #[cfg(desktop)]
@@ -895,6 +920,8 @@ pub fn run() {
     builder
         .invoke_handler(tauri::generate_handler![
             add_recent_folder,
+            incoming_documents::take_incoming_documents,
+            incoming_documents::open_incoming_document,
             load_view_state,
             open_markdown_file,
             pick_document,
@@ -906,8 +933,16 @@ pub fn run() {
             search_markdown_files,
             set_recent_folder_pinned
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running mdview");
+        .build(tauri::generate_context!())
+        .expect("error while building mdview")
+        .run(|app, event| {
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
+            if let tauri::RunEvent::Opened { urls } = event {
+                incoming_documents::enqueue(app, urls.into_iter().map(|url| url.to_string()));
+            }
+            #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+            let _ = (app, event);
+        });
 }
 
 /// Restores folder watchers and the new-document cutoff after native plugins initialize.

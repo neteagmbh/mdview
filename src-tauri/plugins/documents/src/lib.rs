@@ -28,6 +28,13 @@ pub struct Document {
 }
 
 impl<R: Runtime> Documents<R> {
+    /// Retains an OS-supplied document URL and returns its decoded filesystem path.
+    pub fn accept(&self, url: &str) -> Result<Selection, String> {
+        self.0
+            .run_mobile_plugin("accept", serde_json::json!({ "url": url }))
+            .map_err(|error| error.to_string())
+    }
+
     /// Presents AirPrint and waits until its dialog is closed or cancelled.
     pub fn print(&self) -> Result<(), String> {
         self.0

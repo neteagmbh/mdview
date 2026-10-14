@@ -6,6 +6,8 @@ A small desktop Markdown viewer built with Rust, Tauri 2, TypeScript, and Vite.
 
 - Native Markdown file picker
 - Drag-and-drop opening
+- OS Open With registration for `.md`, `.markdown`, `.mdown`, `.mkd`, and `.mkdn` (`text/markdown`)
+- iOS Open In document handoff with provider access retained across relaunches
 - Persistent LRU of recently viewed folders with pinning to exempt folders from eviction
 - Recursive Markdown file tree with refresh support and live updates for new/changed files
 - Toggleable document outline with heading navigation
@@ -42,6 +44,14 @@ npm run tauri build
 ```
 
 Tauri applications are normally built on the operating system they target.
+
+File associations are included in packaged builds. Install the desktop bundle or
+iOS app to expose mdview in the OS document-opening menus. Incoming files open in
+the current viewer, including when they launch the app; an incoming startup file
+takes precedence over the last session's document. When several files arrive
+together, mdview opens the first and reports the additional files. Apple declares
+mdview as an alternate viewer for Markdown. A dedicated Share/Action extension is
+a separate feature.
 
 ### Signed and notarized macOS build
 
