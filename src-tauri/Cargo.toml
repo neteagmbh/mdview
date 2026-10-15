@@ -36,6 +36,13 @@ objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std"
 [dev-dependencies]
 tempfile = "3"
 
+# Xcode 27 SwiftPM hides swift-rs C exports in release static libraries.
+# Tauri builds its native Swift package according to Cargo's DEBUG flag.
+# Keep that bridge in debug mode while Rust retains release optimization.
+# Remove after https://github.com/tauri-apps/tauri/issues/16130 is resolved.
+[profile.release.package.tauri]
+debug = "line-tables-only"
+
 [lints.rust]
 unsafe_code = "warn"
 

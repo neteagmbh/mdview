@@ -153,16 +153,14 @@ automatic signing can manage this.
 With Xcode 27 / Swift 6.4, release builds can fail to link Swift bridge symbols
 such as `retain_object`, `release_object`, and `string_from_bytes`. Until the
 [upstream visibility issue](https://github.com/tauri-apps/tauri/issues/16130) is
-resolved, enable minimal Rust debug information for the release build:
-
-```sh
-CARGO_PROFILE_RELEASE_DEBUG=line-tables-only \
-  npm run tauri -- ios build --export-method debugging
-```
+resolved, `src-tauri/Cargo.toml` enables line-table debug information for the
+Tauri crate automatically. The normal build command above requires no additional
+environment flags.
 
 Rust keeps its release optimizations. The `swift-rs` build integration selects
-the debug configuration for its Swift packages when Rust debug information is
-enabled, avoiding the affected Swift release compilation.
+the debug configuration for Tauri's native Swift bridge when that crate's debug
+information is enabled, keeping the required C exports visible. Other crates and
+the native document plugin retain their existing release configuration.
 
 The IPA is generated in `src-tauri/gen/apple/build/arm64/`. Install it through
 **Xcode → Open Developer Tool → Device Hub**. Select your iPad, click the
