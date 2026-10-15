@@ -43,6 +43,19 @@ final class DocumentRegistrationTests: XCTestCase {
         XCTAssertEqual(try plist("Info.ios.plist")["LSSupportsOpeningDocumentsInPlace"] as? Bool, true)
     }
 
+    /// Registers Apple's existing folder type without claiming ownership or inventing an extension.
+    func testFolderTypeRegistration() throws {
+        let data = try Data(contentsOf: root.appendingPathComponent("tauri.conf.json"))
+        let config = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let bundle = try XCTUnwrap(config["bundle"] as? [String: Any])
+        let associations = try XCTUnwrap(bundle["fileAssociations"] as? [[String: Any]])
+        let folder = try XCTUnwrap(associations.first { ($0["contentTypes"] as? [String]) == ["public.folder"] })
+        XCTAssertEqual(folder["ext"] as? [String], [])
+        XCTAssertEqual(folder["role"] as? String, "Viewer")
+        XCTAssertEqual(folder["rank"] as? String, "Alternate")
+        XCTAssertNil(folder["exportedType"])
+    }
+
     /// Validates real build output when callers supply macOS bundle and generated iOS plist paths.
     func testPackagedAndGeneratedAppleMetadata() throws {
         let environment = ProcessInfo.processInfo.environment
@@ -57,6 +70,9 @@ final class DocumentRegistrationTests: XCTestCase {
             XCTAssertEqual(document["LSHandlerRank"] as? String, "Alternate")
             XCTAssertEqual(document["CFBundleTypeExtensions"] as? [String], ["md", "markdown", "mdown", "mkd", "mkdn"])
             XCTAssertEqual(document["LSItemContentTypes"] as? [String], ["net.daringfireball.markdown"])
+            let folder = try XCTUnwrap(documents.first { ($0["LSItemContentTypes"] as? [String]) == ["public.folder"] })
+            XCTAssertEqual(folder["CFBundleTypeRole"] as? String, "Viewer")
+            XCTAssertEqual(folder["LSHandlerRank"] as? String, "Alternate")
             let types = try XCTUnwrap(metadata["UTImportedTypeDeclarations"] as? [[String: Any]])
             let tags = try XCTUnwrap(types.first?["UTTypeTagSpecification"] as? [String: Any])
             XCTAssertEqual(tags["public.mime-type"] as? String, "text/markdown")

@@ -42,6 +42,13 @@
         "mimeType": "text/markdown",
         "role": "Viewer",
         "rank": "Alternate"
+      },
+      {
+        "ext": [],
+        "contentTypes": ["public.folder"],
+        "name": "Folder",
+        "role": "Viewer",
+        "rank": "Alternate"
       }
     ],
     "macOS": {

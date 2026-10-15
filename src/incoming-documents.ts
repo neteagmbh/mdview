@@ -1,4 +1,6 @@
-/** Bridges OS file requests to the viewer after layout initialization and before restoration. */
+import type { MarkdownTreeNode } from "./recent-tree";
+
+/** Bridges OS file and folder requests to the viewer before session restoration. */
 export interface IncomingDocumentHandlers {
   listen: (notify: () => void) => Promise<unknown>;
   take: () => Promise<string[]>;
@@ -55,5 +57,22 @@ export async function initializeIncomingDocuments(handlers: IncomingDocumentHand
   ready = true;
   if (dirty) {
     await drain();
+  }
+}
+/** A native handoff resolved into document content or a folder's Markdown tree. */
+export type IncomingContent<Document> =
+  | { kind: "document"; document: Document }
+  | { kind: "folder"; path: string; folders: MarkdownTreeNode[] };
+
+/** Routes an incoming folder to the browser and a Markdown file to the document view. */
+export async function displayIncomingContent<Document>(
+  content: IncomingContent<Document>,
+  displayDocument: (document: Document) => Promise<void>,
+  displayFolder: (path: string, folders: MarkdownTreeNode[]) => void,
+): Promise<void> {
+  if (content.kind === "folder") {
+    displayFolder(content.path, content.folders);
+  } else {
+    await displayDocument(content.document);
   }
 }
