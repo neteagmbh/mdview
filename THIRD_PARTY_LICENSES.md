@@ -14,11 +14,18 @@ Upstream source links provide the applicable license and copyright notices.
 | `@tauri-apps/plugin-dialog` | 2.7.3 | MIT OR Apache-2.0 | [tauri-apps/plugins-workspace](https://github.com/tauri-apps/plugins-workspace) |
 | `@tauri-apps/plugin-opener` | 2.5.5 | MIT OR Apache-2.0 | [tauri-apps/plugins-workspace](https://github.com/tauri-apps/plugins-workspace) |
 | `dompurify` | 3.4.16 | MPL-2.0 OR Apache-2.0 | [cure53/DOMPurify](https://github.com/cure53/DOMPurify) |
+| `core-js` | 3.50.0 | MIT | [zloirock/core-js](https://github.com/zloirock/core-js) |
 | `esbuild` | 0.28.2 | MIT | [evanw/esbuild](https://github.com/evanw/esbuild) |
 | `highlight.js` | 11.12.0 | BSD-3-Clause | [highlightjs/highlight.js](https://github.com/highlightjs/highlight.js) |
 | `marked` | 18.0.14 | MIT | [markedjs/marked](https://github.com/markedjs/marked) |
 | `marked-highlight` | 2.2.4 | MIT | [markedjs/marked-highlight](https://github.com/markedjs/marked-highlight) |
 | `mermaid` | 11.17.2 | MIT | [mermaid-js/mermaid](https://github.com/mermaid-js/mermaid) |
+| `pdfjs-dist` | 6.4.299 | Apache-2.0 | [mozilla/pdf.js](https://github.com/mozilla/pdf.js/tree/v6.4.299) |
+
+PDF.js resource licenses are bundled under `pdfjs/6.4.299/`: the PDF.js `LICENSE`,
+the scoped polyfill's `CORE_JS_LICENSE`, Foxit and Liberation font notices in `standard_fonts/`, decoder notices in `wasm/`,
+and the ICC profile notice in `iccs/`. The optional QuickJS scripting sandbox is
+excluded. The compatibility fixture is original mdview test content.
 
 ## Rust runtime and build libraries
 
@@ -38,6 +45,7 @@ Upstream source links provide the applicable license and copyright notices.
 | --- | --- | --- | --- |
 | `@tauri-apps/cli` | 2.12.0 | Apache-2.0 OR MIT | [tauri-apps/tauri](https://github.com/tauri-apps/tauri) |
 | `@types/dompurify` | 3.0.5 | MIT | [DefinitelyTyped](https://github.com/DefinitelyTyped/DefinitelyTyped) |
+| `@types/node` | 24.19.2 | MIT | [DefinitelyTyped](https://github.com/DefinitelyTyped/DefinitelyTyped) |
 | `jsdom` | 29.1.1 | MIT | [jsdom/jsdom](https://github.com/jsdom/jsdom) |
 | `typescript` | 7.0.2 | Apache-2.0 | [microsoft/TypeScript](https://github.com/microsoft/TypeScript) |
 | `vite` | 7.3.6 | MIT | [vitejs/vite](https://github.com/vitejs/vite) |
@@ -50,3 +58,6 @@ The complete resolved dependency inventories are recorded in
 [`package-lock.json`](package-lock.json) and [`src-tauri/Cargo.lock`](src-tauri/Cargo.lock).
 Transitive dependencies remain subject to the licenses and notices published by their
 respective copyright holders.
+
+PDF.js optionally uses `@napi-rs/canvas` (MIT) and its platform binaries for Node-only
+fixture tests. Those native binaries are not part of the browser/Tauri PDF bundle.

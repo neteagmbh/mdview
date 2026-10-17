@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>mdview PDF.js compatibility probe</title>
+  </head>
+  <body>
+    <h1>PDF.js compatibility probe</h1>
+    <pre id="report">Running…</pre>
+    <button id="print" disabled>Print all three pages</button>
+    <div id="viewer-container"><div id="viewer" class="pdfViewer"></div></div>
+    <div id="print-root"></div>
+    <script type="module" src="/src/pdfjs-probe.ts"></script>
+  </body>
+</html>

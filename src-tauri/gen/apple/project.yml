@@ -2,7 +2,7 @@ name: mdview
 options:
   bundleIdPrefix: tools.netea.mdview
   deploymentTarget:
-    iOS: 17.0
+    iOS: 18.0
 fileGroups: [../../src]
 configs:
   debug: debug

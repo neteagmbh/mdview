@@ -30,10 +30,31 @@ Install Node.js, Rust, and the platform dependencies listed in the
 
 ## Development
 
+Use Node.js 24 LTS (minimum 22.13.0) for the PDF.js dependency and build tools.
+
 ```sh
 npm install
 npm run tauri dev
 ```
+
+### PDF.js compatibility probe
+
+The PDF.js packaging prototype is available separately from the Markdown viewer.
+Normal builds exclude its test page. To build the offline probe on macOS/Linux:
+
+```sh
+MDVIEW_PDF_PROBE=1 npm run build
+```
+
+On macOS, verify the production bundle in a real WKWebView:
+
+```sh
+xcrun swift scripts/pdfjs-wk-probe.swift dist /tmp/mdview-pdf-print.pdf
+```
+
+The Swift command requires macOS and verifies real WebKit rendering and three-page
+native print-to-PDF output. See [PDF.js validation](doc/pdfjs-compatibility.md) for
+development-server, packaged-app, platform, and memory-measurement details.
 
 ## Build
 
@@ -96,7 +117,8 @@ the underlying error before changing signing settings or removing build files.
 
 Build on a Mac with full Xcode installed. Open Xcode to complete its initial
 setup and install an iOS simulator runtime in its settings. The app requires
-iPadOS 17 or newer.
+iOS/iPadOS 18 or newer. Devices running iOS/iPadOS 17 must upgrade before
+installing this version; an existing mdview installation can remain on the device.
 
 Install the dependencies and Rust targets from the project root:
 
@@ -183,6 +205,10 @@ Run the native document-reader and print-completion unit tests on macOS with:
 ```sh
 xcrun swift test --package-path src-tauri/plugins/documents
 ```
+
+The native tests also check that Tauri, SwiftPM, CocoaPods, and Xcode agree on
+the iOS deployment minimum. To verify a compiled app's `MinimumOSVersion`, set
+`MDVIEW_IOS_APP_INFO_PLIST` to that app's `Info.plist` when running the tests.
 
 See the [Tauri iOS prerequisites](https://v2.tauri.app/start/prerequisites/#ios),
 [mobile development guide](https://v2.tauri.app/develop/#developing-your-mobile-application),

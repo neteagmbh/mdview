@@ -1,0 +1,13 @@
+{
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "url": "dev/pdfjs-probe.html",
+        "title": "PDF.js compatibility probe",
+        "width": 960,
+        "height": 720
+      }
+    ]
+  }
+}

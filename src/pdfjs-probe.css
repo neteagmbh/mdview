@@ -1,0 +1,14 @@
+body { margin: 16px; font: 14px system-ui, sans-serif; }
+h1 { font-size: 20px; }
+pre { white-space: pre-wrap; max-height: 150px; overflow: auto; }
+#viewer-container { position: absolute; overflow: auto; inset: 300px 16px 16px; background: #ddd; }
+#print-root { display: none; }
+.probe-print-page { width: 612pt; height: 792pt; break-after: page; }
+.probe-print-page:last-child { break-after: auto; }
+.probe-print-page img { width: 100%; height: 100%; display: block; }
+@media print {
+  @page { size: letter; margin: 0; }
+  body { margin: 0; }
+  body > :not(#print-root) { display: none !important; }
+  #print-root { display: block; }
+}
