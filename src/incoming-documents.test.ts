@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { initializeIncomingDocuments, type IncomingDocumentHandlers } from "./incoming-documents";
+import {
+  displayIncomingContent,
+  initializeIncomingDocuments,
+  type IncomingDocumentHandlers,
+} from "./incoming-documents";
+import type { MarkdownTreeNode } from "./recent-tree";
 
 /** Builds an OS handoff fixture with explicit runtime notification control. */
 function fixture(batches: string[][]) {
@@ -17,6 +22,14 @@ function fixture(batches: string[][]) {
 }
 
 describe("initializeIncomingDocuments", () => {
+  /** Gives an OS folder request priority over restoring a previous document. */
+  it("consumes a startup folder request without restoring the previous document", async () => {
+    const { handlers } = fixture([["file:///Markdown%20Notes/"]]);
+    await initializeIncomingDocuments(handlers);
+    expect(handlers.open).toHaveBeenCalledExactlyOnceWith("file:///Markdown%20Notes/");
+    expect(handlers.restoreDocument).not.toHaveBeenCalled();
+  });
+
   /** Ensures incoming launch files take priority over the last session's document. */
   it("subscribes before consuming startup files and skips restoration", async () => {
     const { handlers } = fixture([["file:///requested.md"]]);
@@ -86,5 +99,33 @@ describe("initializeIncomingDocuments", () => {
     batches.push(["file:///available.md"]);
     notify();
     await vi.waitFor(() => expect(handlers.open).toHaveBeenCalledTimes(2));
+  });
+});
+
+describe("displayIncomingContent", () => {
+  /** Preserves the selected folder path and its Markdown tree without opening it as a file. */
+  it("routes a folder to the folder browser", async () => {
+    const folders: MarkdownTreeNode[] = [{
+      name: "Notes", path: "/Notes", isDirectory: true, isNew: false, pinned: false,
+      children: [{
+        name: "readme.md", path: "/Notes/readme.md", isDirectory: false,
+        isNew: false, pinned: false, children: [],
+      }],
+    }];
+    const displayDocument = vi.fn(async () => undefined);
+    const displayFolder = vi.fn();
+    await displayIncomingContent({ kind: "folder", path: "/Notes", folders }, displayDocument, displayFolder);
+    expect(displayFolder).toHaveBeenCalledExactlyOnceWith("/Notes", folders);
+    expect(displayDocument).not.toHaveBeenCalled();
+  });
+
+  /** Keeps existing incoming Markdown files on the document rendering path. */
+  it("routes a document to the viewer", async () => {
+    const document = { path: "/Notes/readme.md", content: "# Notes" };
+    const displayDocument = vi.fn(async () => undefined);
+    const displayFolder = vi.fn();
+    await displayIncomingContent({ kind: "document", document }, displayDocument, displayFolder);
+    expect(displayDocument).toHaveBeenCalledExactlyOnceWith(document);
+    expect(displayFolder).not.toHaveBeenCalled();
   });
 });

@@ -62,7 +62,7 @@ describe("sidebar toggle", () => {
 
   it("reveals a sidebar hidden until found when the toggle is clicked", () => {
     const { shell, sidebar, toggle } = fixture();
-    sidebar.hidden = "until-found";
+    sidebar.setAttribute("hidden", "until-found");
 
     toggle.click();
 
