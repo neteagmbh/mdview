@@ -9,8 +9,9 @@ describe("PDF.js probe fixture", () => {
   it("parses all three pages and their twelve font samples and links", async () => {
     const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
     const task = getDocument({ data: createPdfjsFixture(),
-      standardFontDataUrl: fileURLToPath(new URL("../node_modules/pdfjs-dist/standard_fonts/", import.meta.url)),
-      wasmUrl: fileURLToPath(new URL("../node_modules/pdfjs-dist/wasm/", import.meta.url)), useWasm: false });
+      // PDF.js validates a trailing URL slash even when its Node factory reads filesystem paths.
+      standardFontDataUrl: fileURLToPath(new URL("../node_modules/pdfjs-dist/standard_fonts/", import.meta.url)).replace(/\\/g, "/"),
+      wasmUrl: new URL("../node_modules/pdfjs-dist/wasm/", import.meta.url).href, useWasm: false });
     try {
       const pdf = preparePdfDocument(await task.promise, false);
       expect(pdf.numPages).toBe(3);

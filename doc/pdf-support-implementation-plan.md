@@ -1,7 +1,7 @@
 # PDF.js viewing implementation plan
 
 Date: 17 October 2026.
-Status: steps 1–2 implemented; available Apple runtime checks pass. Windows/Linux and physical-device validation gates remain open; steps 3–9 pending.
+Status: steps 1–2 implemented; available Apple and Windows packaged runtime checks pass. Linux, physical-device, desktop-baseline, and representative-document memory validation gates remain open; steps 3–9 pending.
 Background: [PDF feasibility analysis](pdf-support-analysis.md).
 
 ## Confirmed decisions
@@ -120,7 +120,17 @@ Implementation results (17 October 2026):
 - Verified three distinct pages in native AppKit print-to-PDF output and inspected print previews; the prototype requires PDF-specific paper/margins and asynchronous printing.
 - Recorded resource/chunk sizes, canvas allocation, reproduction commands, known compatibility fixes, and pending platform checks in [PDF.js validation](pdfjs-compatibility.md).
 - Passed all 207 automated tests, TypeScript, and the normal production build; confirmed that the probe remains excluded from normal output.
-- Windows WebView2, Linux WebKitGTK, physical iPad/AirPrint, oldest desktop baselines, and representative-document memory tests remain explicit validation gates.
+- Linux WebKitGTK, physical iPad/AirPrint, oldest desktop baselines, and representative-document memory tests remain explicit validation gates.
+
+Windows validation results (17 October 2026):
+
+- Built the opt-in production probe on Windows build 26200 x64 using Node 22.13.1 and Rust 1.100.0-nightly; produced MSI (6.48 MiB) and NSIS (5.38 MiB) installers. Launched the built executable directly; installer installation was not exercised.
+- Passed the actual packaged WebView2 probe at `http://tauri.localhost/dev/pdfjs-probe.html` with the maintained CSP, using the reported Chromium/Edge 155 engine: real worker, first-page rendering, selectable text, all 36 find hits, link annotation, twelve standard-font variants per page, four local resource checks, three decoded JPEG 2000 images, and WASM compilation; no warnings or text errors. Elapsed time: 1,094 ms.
+- Passed the same probe in the actual development-mode WebView2 app at `http://localhost:1420/dev/pdfjs-probe.html`: 1,855 ms, no warnings. TypeScript and the normal production build passed; confirmed normal output excludes the probe page and PDF runtime chunks.
+- Opened the native WebView2 print UI and saved complete output: three Letter pages (612 × 792 pt), each containing its own raster image; inspected extracted page-one and page-three images with distinct page labels, all twelve fonts, and the four-color image. Development print cancellation and reopening also retained all three preview pages. Physical printing was not attempted. Browser preview initially included date/title/URL/page headers and footers; step 8 must explicitly control those settings and validate final output fidelity.
+- Matched the 283-file / 4,463,193-byte offline inventory; peak single print canvas remained 4,362,336 bytes. These are fixture measurements, not total process memory or evidence for the provisional 64 MiB cap.
+- Passed all 139 frontend and 34 Windows Rust unit tests. Fixed the real PDF fixture test's Windows resource paths: forward slashes for font loading and a `file:` URL for decoder module imports. Build-script tests passed 18/21; three existing `run-ipad.node-test.mjs` cases fail because mocked macOS paths are joined with Windows separators. The aggregate `npm test` command therefore remains failing on Windows; Swift tests require an Apple host.
+- Detailed reproduction, production chunk sizes, development checks, and remaining limitations are recorded in [PDF.js validation](pdfjs-compatibility.md). Windows runtime success does not close the Linux or representative-document printing/memory gates.
 
 ### 3. Add document kinds and binary PDF access
 
@@ -269,7 +279,7 @@ Acceptance: all required automated checks pass; platform verification results an
 | Desktop compatibility floor | Preserve existing targets; test actual runtime engines before selecting final PDF.js build settings. | Specify oldest supported macOS and representative Linux distributions/WebKitGTK versions. Raising iOS does not raise desktop WebKit versions. |
 | PDF file-size limit | Evaluate a provisional 64 MiB PDF input cap; retain 16 MiB for Markdown. | Measure peak memory on the oldest supported iPad and representative PDFs; finalize a documented safe cap before release. File size alone does not bound canvas memory. |
 | Viewer components | Integrate upstream components beneath mdview controls. | Prove the selected release’s component/worker APIs in step 2; document any justified departure before broader integration. |
-| PDF.js version/build runtime | PDF.js 6.4.299 legacy build pinned; CI uses Node 24. | Available Apple probes pass with scoped compatibility fixes; Windows/Linux checks remain pending. |
+| PDF.js version/build runtime | PDF.js 6.4.299 legacy build pinned; CI uses Node 24. | Available Apple and packaged Windows WebView2 probes pass; Linux and oldest-desktop checks remain pending. |
 | Printing | Include complete-document printing in the first release; native PDF input on iOS. | Prove desktop print integration and page fidelity in step 2. Any reduced platform print scope needs an explicit product decision. |
 | Password-protected PDFs | Support password retry/cancel; keep passwords in memory only. | Verify behavior for printing restrictions and encrypted source printing on each target. Show clear unsupported cases rather than promising universal fidelity. |
 | Forms and signatures | Display existing appearance; do not edit forms or claim signature validation. | Confirm if interactive form filling or signature verification is a launch requirement; either expands scope. |

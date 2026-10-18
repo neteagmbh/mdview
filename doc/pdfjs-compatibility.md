@@ -105,7 +105,10 @@ The JPEG 2000 sample is stored as hexadecimal fixture data, avoiding a new produ
 | macOS WKWebView, Vite development URLs | Pass: same checks and native print output. |
 | Complete native AppKit print-to-PDF | Pass: exactly three distinct pages; page-one and page-three PNG previews visually inspected. |
 | Packaged iPadOS 18.0 simulator, minified production frontend | Pass: real worker, selection, all 36 find hits, links, fonts, resources, and all three decoded JPX images after the text-stream adapter; approximately 1.57 seconds. |
-| Windows WebView2 / Linux WebKitGTK | Not executable on this macOS host; native runtime/print checks remain pending. |
+| Windows WebView2, minified production assets, packaged Tauri origin and application CSP | Pass on Windows build 26200 x64, reported Chromium/Edge 155: real worker, selection, 36 hits, links, twelve font variants per page, four local resources, WASM, and all three JPX images; 1,094 ms, no warnings. |
+| Windows WebView2, Vite development URLs | Pass in the actual debug app at `http://localhost:1420/dev/pdfjs-probe.html`: same runtime assertions, 1,855 ms, no warnings. |
+| Windows WebView2 complete print-to-PDF | Pass for the three-page fixture: native print UI and saved three Letter pages, with distinct page-one/page-three raster images visually inspected. Initial browser preview adds headers/footers; production settings and broader document fidelity remain step 8 work. |
+| Linux WebKitGTK | Requires a Linux host; native runtime/print checks remain pending. |
 | Oldest supported macOS / representative Linux distributions | Baselines still need to be agreed; no desktop support floor was raised. |
 | Physical iPad and AirPrint | Pending; simulator/rendering checks do not establish physical-device printing or memory limits. |
 
@@ -119,6 +122,8 @@ The JPEG 2000 sample is stored as hexadecimal fixture data, avoiding a new produ
 - Maximum single print canvas allocation: 4,362,336 bytes at the prototype's 108 dpi.
 - Host rendering/probe elapsed time before native printing: approximately 0.8–1.3 seconds in observed runs.
 - Packaged iPadOS 18 simulator: 1,567 ms for the same probe, with no reported text-extraction error.
+- Windows production chunks: parser/adapter 496.13 kB raw / 151.44 kB gzip; viewer 216.16 / 67.78 kB; iterator compatibility 20.82 / 8.43 kB; viewer CSS 223.45 / 41.25 kB (Vite decimal kB).
+- Packaged Windows WebView2: 1,094 ms; same 7,970-byte fixture and 4,362,336-byte peak single print canvas. The saved raster print PDF is 93,112 bytes with three 612 × 792 pt pages.
 
 These figures are a small-fixture benchmark, not a total resident-memory measurement.
 They exclude decoder heaps, retained PNG images, text layers, native web processes, and high-DPI display canvases.
@@ -131,7 +136,11 @@ The proven macOS prototype path prepares every page at print intent and uses asy
 PDF printing needs original page dimensions and its own native margin configuration; the existing Markdown margins must remain unchanged.
 The prototype's raster output does not preserve original vector data and does not establish production print resolution or long-document memory behavior.
 Prefer native original-PDF input on iOS as planned; verify it during step 8.
-Windows/Linux print dialogs and output remain platform gates rather than inferred successes from browser unit tests.
+Windows WebView2's native print UI and three-page Save as PDF output were exercised on the Windows host; all pages are prepared independently of the screen cache.
+The initial preview inherited browser date/title/URL/page decorations, so step 8 needs explicit PDF print settings; CSS alone must not be assumed to suppress browser headers/footers.
+The saved PDF contains raster page images and no extractable text; it is a print prototype, not an original-PDF copy or proof of vector fidelity.
+The development-mode print preview also contained three pages; cancellation and reopening the preview succeeded.
+Linux printing, physical Windows printers, mixed page sizes, long-document memory, and production resolution remain gates.
 
 ## Checks and remaining limits
 
@@ -142,4 +151,42 @@ Windows/Linux print dialogs and output remain platform gates rather than inferre
 - npm audit reports no PDF.js/core-js advisory; existing KaTeX/Mermaid and source-map-js findings remain outside this work package.
 - CMap/ICC delivery is checked; a broad CJK, embedded-font, CMYK, encrypted, and damaged-PDF corpus remains release work.
 - Actual PDF file access, file associations, provider snapshots, and shell controls remain later implementation steps.
-- No Windows/Linux runtime pass or physical-device result is claimed by this report.
+- No Linux runtime pass, oldest-Windows-engine pass, or physical-device result is claimed by this report.
+
+## Windows reproduction and automated checks (17 October 2026)
+
+The Windows host used Node 22.13.1 and Rust 1.100.0-nightly (`4b6d04e70`), targeting x64 MSVC.
+Install locked dependencies with `npm.cmd ci` before checking a fresh checkout.
+Invoke the CLI directly from PowerShell to avoid the observed npm PowerShell wrapper dropping `--config`:
+
+```powershell
+$env:MDVIEW_PDF_PROBE = "1"
+node node_modules/@tauri-apps/cli/tauri.js build --config src-tauri/tauri.pdf-probe.conf.json
+```
+
+This produced `src-tauri/target/release/mdview.exe`, the MSI at `bundle/msi/mdview_0.2.0_x64_en-US.msi` (6.48 MiB), and NSIS installer at `bundle/nsis/mdview_0.2.0_x64-setup.exe` (5.38 MiB) below that release directory.
+The built executable, rather than an installed copy, was launched for runtime checks.
+Its probe document URL was `http://tauri.localhost/dev/pdfjs-probe.html`; all PDF resources were bundled locally.
+No network disconnection was imposed; this confirms local asset operation rather than a separate air-gap test.
+The original release probe remains embedded in that executable even after rebuilding `dist` normally.
+
+For development validation, start Vite and the debug app in separate PowerShell sessions, each with `MDVIEW_PDF_PROBE=1`:
+
+```powershell
+node node_modules/vite/bin/vite.js --host 127.0.0.1 --port 1420
+node node_modules/@tauri-apps/cli/tauri.js dev --no-dev-server --config src-tauri/tauri.pdf-probe.conf.json
+```
+
+Close the release probe before launching the debug app because Windows uses single-instance forwarding.
+For normal output verification, remove the environment variable, run `npm.cmd run build`, and check that `dist/dev/pdfjs-probe.html` and PDF runtime chunks are absent while local PDF resource assets remain present.
+
+Windows automated results:
+
+- All 139 frontend tests and 34 Rust tests passed; Rust's Apple-only test count differs from the earlier macOS run.
+- The fixture regression exposed two Node-only Windows path problems. Use forward slashes in `standardFontDataUrl`, and preserve a `file:` URL in `wasmUrl` because the fallback decoder is dynamically imported. All three pages then render and satisfy decoded-pixel assertions.
+- Build-script suites passed 18/21. Existing mocked macOS launcher tests in `scripts/run-ipad.node-test.mjs` fail for simulator build/install paths, Device Hub paths, and `DEVELOPER_DIR` because `node:path.join` uses Windows separators. These failures were retained and reported rather than skipped; aggregate `npm test` exits unsuccessfully.
+- TypeScript and both opt-in and normal production frontend builds passed. Normal output excludes `dev/pdfjs-probe.html` and PDF runtime chunks.
+- Swift tests were not run on Windows; prior Apple results above remain historical evidence.
+
+The Windows print fixture and extracted images are retained locally under `src-tauri/target/pdfjs-validation/`; build/test logs are local ignored `windows-*.log` files.
+Representative-document process-memory measurements, a broad CJK/embedded-font corpus, and the provisional PDF size limit remain unvalidated.
