@@ -21,7 +21,11 @@ import { renderMermaidDiagrams } from "./diagrams";
 import { getEmbeddedDocument, type EmbeddedDocumentId } from "./embedded-documents";
 import { highlightCode } from "./markdown";
 import { resolveMarkdownImages } from "./markdown-images";
-import { initializeIncomingDocuments } from "./incoming-documents";
+import {
+  displayIncomingContent,
+  initializeIncomingDocuments,
+  type IncomingContent,
+} from "./incoming-documents";
 import { handleDocumentScrollKey } from "./keyboard-scroll";
 import { createImagePopoutController } from "./image-popout";
 import {
@@ -722,12 +726,17 @@ void initializeIncomingDocuments({
     }
   },
   open: async (url) => {
-    const document = await invoke<OpenedDocument>("open_incoming_document", { url });
-    await displayOpenedDocument(document);
+    const incoming = await invoke<IncomingContent<OpenedDocument>>("open_incoming_document", { url });
+    await displayIncomingContent(incoming, displayOpenedDocument, (path, folders) => {
+      recentFolderOpenState.set(path, true);
+      renderRecentTree(folders);
+      setSidebarOpen(true);
+      sidebarTabs.reveal("folders");
+    });
   },
   reportAdditional: (count) => {
     window.clearTimeout(linkStatusTimeout);
-    linkStatus.textContent = `${count} additional file(s) were supplied; open each file individually to view it.`;
+    linkStatus.textContent = `${count} additional item(s) were supplied; open each item individually to view it.`;
     linkStatus.title = linkStatus.textContent;
     linkStatus.hidden = false;
   },

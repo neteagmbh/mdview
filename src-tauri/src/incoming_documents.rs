@@ -1,4 +1,4 @@
-//! OS document handoff, command-line file requests, and consumption before frontend readiness.
+//! OS file and folder handoff and consumption before frontend readiness.
 
 #[cfg(any(desktop, test))]
 use std::{ffi::OsString, path::Path};
@@ -28,17 +28,17 @@ impl IncomingDocuments {
     }
 }
 
-/// Validates local document URLs and decodes their paths without damaging URL punctuation.
+/// Validates local Markdown or folder URLs without damaging URL punctuation.
 pub fn document_path(source: &str) -> Result<PathBuf, String> {
     let url = Url::parse(source).map_err(|error| format!("Invalid document URL: {error}"))?;
     if url.scheme() != "file" {
-        return Err("Only local Markdown file URLs can be opened.".to_owned());
+        return Err("Only local Markdown file or folder URLs can be opened.".to_owned());
     }
     let path = url
         .to_file_path()
         .map_err(|()| "Invalid local document path.".to_owned())?;
-    if !super::is_markdown(&path) {
-        return Err("Choose a file with a Markdown extension.".to_owned());
+    if !path.is_dir() && !super::is_markdown(&path) {
+        return Err("Choose a folder or a file with a Markdown extension.".to_owned());
     }
     Ok(path)
 }
@@ -66,7 +66,7 @@ pub fn argument_urls(args: impl IntoIterator<Item = OsString>, cwd: &Path) -> Ve
             } else {
                 cwd.join(path)
             };
-            super::is_markdown(&path)
+            (path.is_dir() || super::is_markdown(&path))
                 .then(|| Url::from_file_path(path).ok())
                 .flatten()
                 .map(|url| url.to_string())
@@ -112,29 +112,61 @@ pub fn take_incoming_documents(app: AppHandle) -> Result<Vec<String>, String> {
     app.state::<IncomingDocuments>().take()
 }
 
-/// Opens an incoming file through the same provider access and validation as picker documents.
+/// An OS request resolved into a document or a browsable recent-folder tree.
+#[derive(serde::Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum IncomingContent {
+    /// A Markdown document ready for rendering.
+    Document {
+        /// Validated content and the updated recent-folder tree.
+        document: super::OpenedDocument,
+    },
+    /// A directory added to the existing folder browser.
+    Folder {
+        /// Canonical folder path used to expand the requested root in the UI.
+        path: PathBuf,
+        /// Markdown-only tree including the newly promoted folder.
+        folders: Vec<super::MarkdownTreeNode>,
+    },
+}
+
+/// Opens an incoming file or folder using the same provider access as picker selections.
 #[tauri::command]
 pub async fn open_incoming_document(
     app: AppHandle,
     url: String,
-) -> Result<super::OpenedDocument, String> {
-    tauri::async_runtime::spawn_blocking(move || {
+) -> Result<IncomingContent, String> {
+    #[cfg(target_os = "ios")]
+    let access_app = app.clone();
+    let path = tauri::async_runtime::spawn_blocking(move || {
         #[cfg(not(target_os = "ios"))]
         let path = document_path(&url)?;
         #[cfg(target_os = "ios")]
         let path = {
             document_path(&url)?;
             PathBuf::from(
-                app.state::<tauri_plugin_documents::Documents<tauri::Wry>>()
+                access_app
+                    .state::<tauri_plugin_documents::Documents<tauri::Wry>>()
                     .accept(&url)?
                     .path
                     .ok_or_else(|| "No incoming document path.".to_owned())?,
             )
         };
-        super::open_document(&app, &path)
+        Ok::<_, String>(path)
     })
     .await
-    .map_err(|error| error.to_string())?
+    .map_err(|error| error.to_string())??;
+    if path.is_dir() {
+        let path = super::canonical_directory(&path)?;
+        let folders = super::add_recent_folder(app, path.to_string_lossy().into_owned()).await?;
+        Ok(IncomingContent::Folder { path, folders })
+    } else {
+        tauri::async_runtime::spawn_blocking(move || {
+            super::open_document(&app, &path).map(|document| IncomingContent::Document { document })
+        })
+        .await
+        .map_err(|error| error.to_string())?
+    }
 }
 
 #[cfg(test)]
@@ -210,5 +242,45 @@ mod tests {
                 path
             );
         }
+    }
+
+    /// Accepts extensionless and Markdown-named folders while rejecting unrelated files.
+    #[test]
+    fn accepts_incoming_folders_and_launcher_paths() {
+        let directory = tempfile::tempdir().unwrap();
+        for name in ["Über 100% # notes", "archive.md"] {
+            let path = directory.path().join(name);
+            std::fs::create_dir(&path).unwrap();
+            let url = Url::from_directory_path(&path).unwrap().to_string();
+            assert_eq!(document_path(&url).unwrap(), path);
+            assert_eq!(
+                argument_urls(
+                    ["mdview".into(), name.into(), url.clone().into()],
+                    directory.path(),
+                )
+                .iter()
+                .map(|source| document_path(source).unwrap())
+                .collect::<Vec<_>>(),
+                [path.clone(), path],
+            );
+        }
+        let path = directory.path().join("image.png");
+        std::fs::write(&path, []).unwrap();
+        assert!(document_path(Url::from_file_path(path).unwrap().as_str()).is_err());
+        let missing = directory.path().join("missing-folder");
+        assert!(document_path(Url::from_directory_path(missing).unwrap().as_str()).is_err());
+    }
+
+    /// Keeps the folder command response aligned with the frontend's discriminated union.
+    #[test]
+    fn serializes_incoming_folder_content() {
+        let content = IncomingContent::Folder {
+            path: PathBuf::from("/Notes"),
+            folders: Vec::new(),
+        };
+        assert_eq!(
+            serde_json::to_value(content).unwrap(),
+            serde_json::json!({ "kind": "folder", "path": "/Notes", "folders": [] }),
+        );
     }
 }
