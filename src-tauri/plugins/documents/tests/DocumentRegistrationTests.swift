@@ -26,14 +26,14 @@ final class DocumentRegistrationTests: XCTestCase {
         let config = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let bundle = try XCTUnwrap(config["bundle"] as? [String: Any])
         let associations = try XCTUnwrap(bundle["fileAssociations"] as? [[String: Any]])
-        let association = try XCTUnwrap(associations.first)
+        let association = try XCTUnwrap(associations.first { ($0["contentTypes"] as? [String]) == ["net.daringfireball.markdown"] })
         let extensions = ["md", "markdown", "mdown", "mkd", "mkdn"]
         XCTAssertEqual(association["ext"] as? [String], extensions)
         XCTAssertEqual(association["mimeType"] as? String, "text/markdown")
         XCTAssertEqual(association["role"] as? String, "Viewer")
         XCTAssertEqual(association["rank"] as? String, "Alternate")
         let types = try XCTUnwrap(try plist("Info.plist")["UTImportedTypeDeclarations"] as? [[String: Any]])
-        let type = try XCTUnwrap(types.first)
+        let type = try XCTUnwrap(types.first { ($0["UTTypeIdentifier"] as? String) == "net.daringfireball.markdown" })
         XCTAssertEqual(association["contentTypes"] as? [String], [try XCTUnwrap(type["UTTypeIdentifier"] as? String)])
         let tags = try XCTUnwrap(type["UTTypeTagSpecification"] as? [String: Any])
         XCTAssertEqual(tags["public.filename-extension"] as? [String], extensions)
@@ -65,7 +65,7 @@ final class DocumentRegistrationTests: XCTestCase {
         for path in paths {
             let metadata = try plist(at: URL(fileURLWithPath: path))
             let documents = try XCTUnwrap(metadata["CFBundleDocumentTypes"] as? [[String: Any]])
-            let document = try XCTUnwrap(documents.first)
+            let document = try XCTUnwrap(documents.first { ($0["LSItemContentTypes"] as? [String]) == ["net.daringfireball.markdown"] })
             XCTAssertEqual(document["CFBundleTypeRole"] as? String, "Viewer")
             XCTAssertEqual(document["LSHandlerRank"] as? String, "Alternate")
             XCTAssertEqual(document["CFBundleTypeExtensions"] as? [String], ["md", "markdown", "mdown", "mkd", "mkdn"])
@@ -73,12 +73,34 @@ final class DocumentRegistrationTests: XCTestCase {
             let folder = try XCTUnwrap(documents.first { ($0["LSItemContentTypes"] as? [String]) == ["public.folder"] })
             XCTAssertEqual(folder["CFBundleTypeRole"] as? String, "Viewer")
             XCTAssertEqual(folder["LSHandlerRank"] as? String, "Alternate")
+            let pdf = try XCTUnwrap(documents.first { ($0["LSItemContentTypes"] as? [String]) == ["com.adobe.pdf"] })
+            XCTAssertEqual(pdf["CFBundleTypeExtensions"] as? [String], ["pdf"])
+            XCTAssertEqual(pdf["CFBundleTypeRole"] as? String, "Viewer")
+            XCTAssertEqual(pdf["LSHandlerRank"] as? String, "Alternate")
             let types = try XCTUnwrap(metadata["UTImportedTypeDeclarations"] as? [[String: Any]])
-            let tags = try XCTUnwrap(types.first?["UTTypeTagSpecification"] as? [String: Any])
+            let type = try XCTUnwrap(types.first { ($0["UTTypeIdentifier"] as? String) == "net.daringfireball.markdown" })
+            let tags = try XCTUnwrap(type["UTTypeTagSpecification"] as? [String: Any])
             XCTAssertEqual(tags["public.mime-type"] as? String, "text/markdown")
             if path == environment["MDVIEW_IOS_INFO_PLIST"] {
                 XCTAssertEqual(metadata["LSSupportsOpeningDocumentsInPlace"] as? Bool, true)
             }
         }
+    }
+
+    /// Uses Apple's standard PDF UTI and a separate viewer association without declaring ownership.
+    func testPDFRegistration() throws {
+        let data = try Data(contentsOf: root.appendingPathComponent("tauri.conf.json"))
+        let config = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let bundle = try XCTUnwrap(config["bundle"] as? [String: Any])
+        let associations = try XCTUnwrap(bundle["fileAssociations"] as? [[String: Any]])
+        let pdf = try XCTUnwrap(associations.first { ($0["contentTypes"] as? [String]) == ["com.adobe.pdf"] })
+        XCTAssertEqual(pdf["ext"] as? [String], ["pdf"])
+        XCTAssertEqual(pdf["mimeType"] as? String, "application/pdf")
+        XCTAssertEqual(pdf["role"] as? String, "Viewer")
+        XCTAssertEqual(pdf["rank"] as? String, "Alternate")
+        XCTAssertNil(pdf["exportedType"])
+        let imported = try XCTUnwrap(try plist("Info.plist")["UTImportedTypeDeclarations"] as? [[String: Any]])
+        XCTAssertFalse(imported.contains { ($0["UTTypeIdentifier"] as? String) == "com.adobe.pdf" })
+        XCTAssertNil(try plist("Info.ios.plist")["UTExportedTypeDeclarations"])
     }
 }

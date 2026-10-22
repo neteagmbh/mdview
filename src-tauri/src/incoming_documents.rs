@@ -31,14 +31,18 @@ impl IncomingDocuments {
 /// Validates local Markdown or folder URLs without damaging URL punctuation.
 pub fn document_path(source: &str) -> Result<PathBuf, String> {
     let url = Url::parse(source).map_err(|error| format!("Invalid document URL: {error}"))?;
-    if url.scheme() != "file" {
-        return Err("Only local Markdown file or folder URLs can be opened.".to_owned());
+    if url.scheme() != "file"
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || url.host_str().is_some_and(|host| host != "localhost")
+    {
+        return Err("Only local Markdown, PDF, or folder URLs can be opened.".to_owned());
     }
     let path = url
         .to_file_path()
         .map_err(|()| "Invalid local document path.".to_owned())?;
-    if !path.is_dir() && !super::is_markdown(&path) {
-        return Err("Choose a folder or a file with a Markdown extension.".to_owned());
+    if !path.is_dir() && super::documents::document_kind(&path).is_none() {
+        return Err("Choose a folder, Markdown file, or PDF file.".to_owned());
     }
     Ok(path)
 }
@@ -66,7 +70,7 @@ pub fn argument_urls(args: impl IntoIterator<Item = OsString>, cwd: &Path) -> Ve
             } else {
                 cwd.join(path)
             };
-            (path.is_dir() || super::is_markdown(&path))
+            (path.is_dir() || super::documents::document_kind(&path).is_some())
                 .then(|| Url::from_file_path(path).ok())
                 .flatten()
                 .map(|url| url.to_string())
@@ -82,6 +86,19 @@ pub fn enqueue(app: &AppHandle, urls: impl IntoIterator<Item = String>) {
         .collect();
     if urls.is_empty() {
         return;
+    }
+    #[cfg(not(target_os = "ios"))]
+    for path in urls
+        .iter()
+        .filter_map(|url| document_path(url).ok())
+        .filter(|path| path.is_file())
+    {
+        if let Err(error) = app
+            .state::<super::documents::PdfDocuments>()
+            .grant_file(&path)
+        {
+            eprintln!("Could not authorize incoming document: {error}");
+        }
     }
     match app.state::<IncomingDocuments>().push(urls) {
         Ok(()) => {
@@ -119,7 +136,7 @@ pub enum IncomingContent {
     /// A Markdown document ready for rendering.
     Document {
         /// Validated content and the updated recent-folder tree.
-        document: super::OpenedDocument,
+        document: super::document_routing::OpenedContent,
     },
     /// A directory added to the existing folder browser.
     Folder {
@@ -135,6 +152,7 @@ pub enum IncomingContent {
 pub async fn open_incoming_document(
     app: AppHandle,
     url: String,
+    request_id: String,
 ) -> Result<IncomingContent, String> {
     #[cfg(target_os = "ios")]
     let access_app = app.clone();
@@ -161,11 +179,14 @@ pub async fn open_incoming_document(
         let folders = super::add_recent_folder(app, path.to_string_lossy().into_owned()).await?;
         Ok(IncomingContent::Folder { path, folders })
     } else {
-        tauri::async_runtime::spawn_blocking(move || {
-            super::open_document(&app, &path).map(|document| IncomingContent::Document { document })
-        })
+        super::document_routing::open_document_file(
+            app,
+            path.to_string_lossy().into_owned(),
+            request_id,
+            None,
+        )
         .await
-        .map_err(|error| error.to_string())?
+        .map(|document| IncomingContent::Document { document })
     }
 }
 
@@ -173,6 +194,30 @@ pub async fn open_incoming_document(
 mod tests {
     //! Regression coverage for queue delivery and launcher path semantics.
     use super::*;
+
+    /// PDF handoffs preserve URL punctuation and launcher paths while remote/ambiguous URLs fail.
+    #[test]
+    fn accepts_pdf_handoff_and_rejects_remote_or_ambiguous_urls() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("Über 100% # source.PDF");
+        let url = Url::from_file_path(&path).unwrap();
+        assert_eq!(document_path(url.as_str()).unwrap(), path);
+        assert_eq!(
+            argument_urls(
+                ["mdview".into(), path.clone().into_os_string()],
+                directory.path()
+            ),
+            [url.to_string()]
+        );
+        for source in [
+            "https://example.com/a.pdf",
+            "file://server/share/a.pdf",
+            "file:///tmp/a.pdf?page=2",
+            "file:///tmp/a.pdf#page=2",
+        ] {
+            assert!(document_path(source).is_err());
+        }
+    }
 
     /// Verifies duplicate notifications do not replay files and intentional later reopens work.
     #[test]

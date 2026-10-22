@@ -1,7 +1,7 @@
 # PDF.js viewing implementation plan
 
 Date: 17 October 2026.
-Status: steps 1–2 implemented; available Apple and Windows packaged runtime checks pass. Linux, physical-device, desktop-baseline, and representative-document memory validation gates remain open; steps 3–9 pending.
+Status: steps 1–7 implemented. Step 7 passes the full unit suites, packaged macOS mixed-folder checks, and native WebKit light/dark appearance checks. Linux, physical-device, desktop-baseline, and representative-document memory validation gates remain open; steps 8–9 pending.
 Background: [PDF feasibility analysis](pdf-support-analysis.md).
 
 ## Confirmed decisions
@@ -151,6 +151,17 @@ Dependencies: step 2.
 Acceptance: local and provider-backed PDF bytes load without UTF-8 conversion; unauthorized/invalid/oversized files fail clearly; released handles cannot read another file.
 Tests: classification, uppercase extensions, invalid content, byte limits, source replacement, cancellation, snapshot cleanup, and provider-reader regressions.
 
+Implementation results (18 October 2026):
+
+- Added the shared document-kind classifier, matching frontend kinds, and a dedicated document-access module.
+- Added metadata-only PDF preparation, raw binary IPC, cancellation, independent viewer/print leases, and idempotent release.
+- Snapshot ownership preserves original bytes after source replacement and removes partial, released, and abandoned resources without deleting another live session's snapshots.
+- Added coordinated Swift binary copying, file/folder grant boundaries, moved-bookmark path resolution, and cancellation cleanup while preserving source identity.
+- Kept the Markdown UTF-8 contract and 16 MiB cap; local reads now detect growth beyond that cap.
+- Selected a separate provisional 16 MiB PDF cap, four pending preparations, and eight leases; the proposed 64 MiB cap awaits physical-device memory evidence.
+- Passed 241 tests, TypeScript, the normal frontend build, iOS cross-compilation, and an unsigned ARM64 simulator application build. Existing Clippy baseline diagnostics remain documented in the access report.
+- Entry-point routing, associations, renderer dispatch, and native PDF printing remain subsequent work. See [document-access contract and limits](pdf-document-access.md).
+
 ### 4. Route every open path and register PDF support
 
 Dependencies: step 3.
@@ -172,6 +183,16 @@ Primary touchpoints: `lib.rs`, `incoming_documents.rs`, `tauri.conf.json`, `Info
 Acceptance: all supported entry points open the same PDF through the same access/rendering lifecycle.
 Tests: mixed types, PDF-only folders, OS URLs, unusual paths, initial/runtime handoff, association metadata, and navigation classification.
 
+Implementation results (21 October 2026):
+
+- Added common document open/reload results and one frontend entry-point controller with cancellation, stale-result guards, and PDF lease disposal.
+- Included PDFs/PDF-only folders in the existing tree while retaining Markdown-only folder search and existing ordering/pinning/LRU behavior.
+- Routed picker, native drop, OS/launcher handoff, restoration, relative links, and watcher reloads through the common contract; retained startup precedence and additional-item handling.
+- Added native PDF filters and a separate `.pdf`/`application/pdf`/`com.adobe.pdf` Viewer/Alternate association; synchronized generated iOS metadata and selected metadata-test entries by UTI.
+- Preserved local Markdown fragments and PDF `#page=N` destinations, including Back navigation; remote incoming URLs remain unsupported.
+- Passed 255 tests, TypeScript, frontend production build, macOS bundling, and an unsigned iOS simulator build; checked both built Apple association lists. On 22 October, an isolated macOS app also passed native-picker opening, Markdown switching, relative PDF page navigation, and Back checks.
+- PDF opening currently shows a prepared-document state; page preview remains step 5 and PDF printing remains step 8. See [routing implementation and validation](pdf-opening-routing.md).
+
 ### 5. Integrate the PDF renderer and lifecycle
 
 Dependencies: steps 2–4.
@@ -192,6 +213,17 @@ Dependencies: steps 2–4.
 Acceptance: repeated PDF↔Markdown switching remains correct; every PDF control works with keyboard/touch; memory reaches a stable bound for repeated document switching.
 Tests: renderer dispatch, stale asynchronous results, cancellation, password flow, action filtering, navigation state, and resource disposal.
 
+Implemented 22 October 2026:
+
+- Added an abortable active-renderer contract and lazy upstream PDFViewer integration with real worker ownership.
+- Added continuous pages, selectable text, read-only annotation/link layers, current/total pages, direct navigation, fit modes, rerendered zoom, rotation, and transient password retry/cancellation.
+- Scoped shell controls to renderer capabilities; preserved Markdown rendering and disabled PDF find/outline/printing until their planned steps.
+- Capped base/detail canvases at 2,097,152 pixels and 4,096 pixels per dimension; retained upstream visible/nearby scheduling and viewport-sized caching.
+- Passed 176 frontend, 21 script, 54 Rust, and 20 Swift tests, including built Apple metadata checks. Native WebKit passed six rendering/disposal cycles on a 60-page fixture with no asynchronous errors; packaged macOS passed PDF↔Markdown navigation and password checks. The unsigned ARM64 iOS simulator app builds.
+- Resource release and bounded canvas allocation are verified; representative-document process-memory plateaus and physical iOS touch/memory behavior remain release-validation gates.
+
+See [viewer implementation and validation](pdf-viewer-lifecycle.md).
+
 ### 6. Add PDF find, outline, and position restoration
 
 Dependencies: step 5.
@@ -210,6 +242,19 @@ Dependencies: step 5.
 Acceptance: find reaches off-screen pages; bookmarks navigate correctly; restart/Back/reload restore valid PDF positions; old Markdown sessions still restore.
 Tests: empty/no-text PDFs, find navigation, result counts, state normalization, cross-type Back history, fewer-page replacements, and repeated reloads.
 
+Implemented 22 October 2026:
+
+- Added PDF.js find-controller integration to the existing search bar, counts, next/previous buttons, Enter/Shift-Enter, and text-layer highlights; PDF results retain page/text offsets. Folder scopes explicitly identify Markdown-only search.
+- Added safe nested bookmark rendering and “No bookmarks” for PDFs without outlines.
+- Persisted page-relative vertical/horizontal offsets, fit/custom zoom, and rotation under original source paths, retaining the twenty most recently read PDFs; older Markdown state remains compatible.
+- Extended Back to capture exact PDF destinations for relative links and picker/tree/drop visits; explicit `#page=N` links override saved positions.
+- Preserved reading state on reload, settled mixed-size page geometry before restoring coordinates, clamped shorter replacements, coalesced concurrent reloads, and bounded retries for atomic replacement gaps.
+- Refresh now reloads both the folder tree and active source; this was tested with an unwatched source and an atomically replaced, shorter PDF.
+- Passed 194 frontend, 21 script, 55 Rust, and 20 Swift tests. Native WebKit passed off-screen search, nested bookmarks, six mixed-size document restoration/disposal cycles, image-only/no-outline results, and shorter replacements without asynchronous errors.
+- The isolated macOS app passed shared search/highlights, bookmark navigation, cross-type Back, restart restoration, and manual refresh; macOS packaging and an unsigned ARM64 iOS simulator build pass. Physical/provider runtime validation remains open.
+
+See [search and reading-state implementation](pdf-reading-state.md).
+
 ### 7. Confirm mixed-folder behavior and user-facing scope
 
 Dependencies: steps 4–6.
@@ -223,6 +268,18 @@ Dependencies: steps 4–6.
 
 Acceptance: a mixed folder works as one coherent document browser; every enabled control has meaningful behavior for the active document.
 Tests: mixed-tree interaction, scope labels, toolbar capability changes, focus, and theme behavior.
+
+Implemented 22 October 2026:
+
+- Added unobtrusive MD/PDF badges and accessible document-type/New labels; retained active-file, folder expansion, and pin behavior. Empty-state copy covers both formats, and loaded trees hide obsolete empty/loading text.
+- Resolved folder search against the covering recent-folder root rather than a nested document's immediate parent; explicit folder selection stays independent from the displayed PDF and LRU ordering.
+- Added accurate current-file scope, PDF bookmark, and unavailable-print labels; loading/error/empty views disable unsupported current-document actions and zoom shortcuts.
+- Corrected folder result counts so valid Markdown results are not accompanied by a stale “No results” counter.
+- Passed 201 frontend, 21 script, 55 Rust, and 20 Swift tests. TypeScript, normal production frontend build, and macOS application packaging pass.
+- In an isolated macOS bundle, a nested PDF retained its parent recent root; folder search found a Markdown match in that root, selecting the result restored Markdown controls, and root promotion/pinning retained expansion and New markers.
+- Native WebKit passed the integrated viewer probe in explicit light and dark appearances, checking original white/unfiltered PDF pages, original image pixels, themed controls, keyboard focus, and existing rendering/search/restoration/disposal behavior.
+
+See [mixed-folder implementation and validation](pdf-mixed-folders.md). Physical iOS/provider, Windows, and Linux runtime release checks remain pending.
 
 ### 8. Implement complete-document PDF printing
 
@@ -277,7 +334,7 @@ Acceptance: all required automated checks pass; platform verification results an
 |---|---|---|
 | Folder-wide PDF search | Ship current-PDF find first; retain clearly labeled Markdown folder search. | Confirm whether PDF text search across folders is required for the initial release. Including it adds extraction, caching, and invalidation work. |
 | Desktop compatibility floor | Preserve existing targets; test actual runtime engines before selecting final PDF.js build settings. | Specify oldest supported macOS and representative Linux distributions/WebKitGTK versions. Raising iOS does not raise desktop WebKit versions. |
-| PDF file-size limit | Evaluate a provisional 64 MiB PDF input cap; retain 16 MiB for Markdown. | Measure peak memory on the oldest supported iPad and representative PDFs; finalize a documented safe cap before release. File size alone does not bound canvas memory. |
+| PDF file-size limit | Step 3 enforces a separate provisional 16 MiB PDF cap; Markdown stays at 16 MiB. Defer the proposed 64 MiB cap. | Measure peak memory on the oldest supported iPad and representative PDFs before raising/finalizing the cap. File size alone does not bound canvas memory. |
 | Viewer components | Integrate upstream components beneath mdview controls. | Prove the selected release’s component/worker APIs in step 2; document any justified departure before broader integration. |
 | PDF.js version/build runtime | PDF.js 6.4.299 legacy build pinned; CI uses Node 24. | Available Apple and packaged Windows WebView2 probes pass; Linux and oldest-desktop checks remain pending. |
 | Printing | Include complete-document printing in the first release; native PDF input on iOS. | Prove desktop print integration and page fidelity in step 2. Any reduced platform print scope needs an explicit product decision. |
@@ -313,4 +370,9 @@ The table records proposed defaults and engineering gates without reopening thos
 
 Step 1 changes the iOS minimum, associated build metadata, tests, and documentation.
 Step 2 adds PDF.js packaging, a lazy runtime, compatibility adapters, and an opt-in validation prototype.
-Normal application PDF file access and viewer integration remain steps 3–9.
+Step 3 adds bounded binary access, provider snapshots, document kinds, and resource ownership.
+Step 4 connects document entry points, mixed trees, local navigation, and platform associations.
+Step 5 adds PDF page rendering, controls, passwords, capability dispatch, and renderer/resource disposal.
+Step 6 adds PDF find, bookmarks, bounded reading-state persistence, exact Back destinations, and coalesced position-preserving reloads.
+Step 7 adds mixed-tree type/status/accessibility labels, root-aware Markdown folder search, shell capability transitions, and appearance/focus checks.
+Complete-document PDF printing and final release verification remain steps 8–9.

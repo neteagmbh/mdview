@@ -8,6 +8,18 @@ import {
 } from "./content-interactions";
 
 describe("classifyMarkdownLink", () => {
+  /** Local PDF navigation preserves encoded source names and page fragments without opening remote files. */
+  it("classifies PDF links and keeps Markdown anchors distinct", () => {
+    expect(classifyMarkdownLink("./Über%20%23%20100%25.PDF#page=4", "/Notes/readme.md")).toEqual({
+      kind: "internal-pdf", path: "/Notes/Über # 100%.PDF", fragment: "page=4",
+    });
+    expect(classifyMarkdownLink("../file.pdf#page=2", "C:\\Notes\\readme.md")).toEqual({
+      kind: "internal-pdf", path: "C:\\file.pdf", fragment: "page=2",
+    });
+    for (const href of ["//server/a.pdf", "\\\\server\\a.pdf", "file://server/a.pdf", "./bad%.pdf"]) {
+      expect(classifyMarkdownLink(href, "/Notes/readme.md")).toEqual({ kind: "other" });
+    }
+  });
   /** Verifies http(s) links are classified as external regardless of the open document. */
   it("classifies http(s) links as external", () => {
     expect(classifyMarkdownLink("https://example.com/docs", "/docs/readme.md")).toEqual({
@@ -63,6 +75,19 @@ describe("resolveMarkdownLinkPath", () => {
 });
 
 describe("attachContentInteractions", () => {
+  /** A PDF page link is intercepted locally and retains its requested destination. */
+  it("delegates PDF links through internal navigation", () => {
+    const root = document.createElement("article");
+    root.innerHTML = '<a href="./report.PDF#page=7">Report</a>';
+    const handlers = { getCurrentPath: () => "/Notes/readme.md", openInternalLink: vi.fn(),
+      openExternalLink: vi.fn(), openImage: vi.fn() };
+    attachContentInteractions(root, handlers);
+    const event = new MouseEvent("click", { bubbles: true, cancelable: true });
+    root.querySelector("a")!.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(handlers.openInternalLink).toHaveBeenCalledWith("/Notes/report.PDF", "page=7");
+    expect(handlers.openExternalLink).not.toHaveBeenCalled();
+  });
   /** Verifies an image click opens the popout instead of following default browser behavior. */
   it("delegates image clicks to openImage", () => {
     const root = document.createElement("article");

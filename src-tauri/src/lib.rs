@@ -12,13 +12,16 @@ use tauri::{AppHandle, Emitter, Manager};
 #[cfg(not(target_os = "ios"))]
 use tauri_plugin_dialog::DialogExt;
 
+mod document_routing;
+mod documents;
 mod incoming_documents;
 #[cfg(target_os = "macos")]
 mod printing;
 mod watcher;
 
 /// Maximum Markdown document size accepted by the viewer.
-const MAX_FILE_SIZE: u64 = 16 * 1024 * 1024;
+#[cfg(any(target_os = "ios", test))]
+const MAX_FILE_SIZE: u64 = documents::MAX_MARKDOWN_SIZE;
 /// Maximum number of recently viewed folders retained in persistent storage.
 const MAX_RECENT_FOLDERS: usize = 10;
 /// Maximum number of matches reported per file by the directory search.
@@ -26,7 +29,8 @@ const MAX_SEARCH_MATCHES_PER_FILE: usize = 50;
 /// Maximum number of characters retained from a matching line for display.
 const MAX_SEARCH_LINE_CHARS: usize = 200;
 /// File extensions recognized as Markdown, without the leading dot.
-const MARKDOWN_EXTENSIONS: &[&str] = &["md", "markdown", "mdown", "mkd", "mkdn"];
+#[cfg(test)]
+const MARKDOWN_EXTENSIONS: &[&str] = documents::MARKDOWN_EXTENSIONS;
 /// File name used for the persistent recent-folder list.
 const RECENT_FOLDERS_FILE: &str = "recent-folders.json";
 /// File name used for persisted window, sidebar, and active-document state.
@@ -42,7 +46,7 @@ const PRINT_MENU_ID: &str = "print";
 /// Stable identifier for the native About menu item.
 const ABOUT_MENU_ID: &str = "about_mdview";
 
-/// A directory or Markdown file displayed in the recent-folder tree.
+/// A directory, Markdown file, or PDF displayed in the recent-folder tree.
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct MarkdownTreeNode {
@@ -56,7 +60,7 @@ struct MarkdownTreeNode {
     is_new: bool,
     /// Whether this node is a pinned recent-folder root (always `false` for descendants).
     pinned: bool,
-    /// Markdown-containing descendants for a directory node.
+    /// Supported document descendants for a directory node.
     children: Vec<MarkdownTreeNode>,
 }
 
@@ -114,8 +118,28 @@ struct ViewState {
     sidebar_width: Option<f64>,
     /// Width of the document-outline sidebar in CSS pixels.
     outline_width: Option<f64>,
-    /// Last successfully opened Markdown document.
+    /// Last successfully opened Markdown or PDF document.
     active_document: Option<PathBuf>,
+    /// Optional PDF reading coordinates keyed by original source path, normalized by the frontend.
+    pdf_positions: std::collections::BTreeMap<PathBuf, PdfPosition>,
+}
+
+/// Portable PDF reading coordinates; transient handles and passwords are never stored here.
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PdfPosition {
+    /// One-based page, clamped against the replacement document during restoration.
+    page: u32,
+    /// Relative vertical offset inside the rotated page.
+    offset: f64,
+    /// Relative horizontal offset inside the rotated page.
+    left: f64,
+    /// Explicit display scale when the mode is custom.
+    scale: f64,
+    /// Page-width, page-fit, or custom scale policy.
+    mode: String,
+    /// Clockwise rotation in quarter turns.
+    rotation: u16,
 }
 
 /// A single matched line within a Markdown document, reported by directory search.
@@ -144,13 +168,7 @@ struct FileSearchResult {
 
 /// Returns whether a path has one of the supported Markdown extensions.
 fn is_markdown(path: &Path) -> bool {
-    path.extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| {
-            MARKDOWN_EXTENSIONS
-                .iter()
-                .any(|allowed| extension.eq_ignore_ascii_case(allowed))
-        })
+    documents::document_kind(path) == Some(documents::DocumentKind::Markdown)
 }
 
 /// Returns a human-readable final component for a file-system path.
@@ -160,9 +178,9 @@ fn display_name(path: &Path) -> String {
         .map_or_else(|| path.display().to_string(), ToOwned::to_owned)
 }
 
-/// Recursively finds Markdown files below a directory.
+/// Recursively finds Markdown and PDF files below a directory.
 ///
-/// Directory branches without Markdown descendants and symbolic links are omitted. Files
+/// Directory branches without supported document descendants and symbolic links are omitted. Files
 /// modified after `new_file_threshold` are flagged as new documents.
 fn scan_directory(
     path: &Path,
@@ -195,7 +213,7 @@ fn scan_directory(
                     children,
                 });
             }
-        } else if file_type.is_file() && is_markdown(&entry_path) {
+        } else if file_type.is_file() && documents::document_kind(&entry_path).is_some() {
             let is_new = entry
                 .metadata()
                 .and_then(|metadata| metadata.modified())
@@ -220,7 +238,7 @@ fn collect_markdown_files(nodes: &[MarkdownTreeNode], files: &mut Vec<PathBuf>) 
     for node in nodes {
         if node.is_directory {
             collect_markdown_files(&node.children, files);
-        } else {
+        } else if is_markdown(&node.path) {
             files.push(node.path.clone());
         }
     }
@@ -576,16 +594,24 @@ async fn pick_document(app: AppHandle, directory: bool) -> Result<Option<String>
                 picker.blocking_pick_folder()
             } else {
                 picker
-                    .add_filter("Markdown", MARKDOWN_EXTENSIONS)
+                    .add_filter(
+                        "Markdown and PDF",
+                        &["md", "markdown", "mdown", "mkd", "mkdn", "pdf"],
+                    )
                     .blocking_pick_file()
             };
-            selected
+            let selected = selected
                 .map(|path| {
                     path.into_path()
                         .map(|path| path.to_string_lossy().into_owned())
                         .map_err(|error| error.to_string())
                 })
-                .transpose()
+                .transpose()?;
+            if !directory && let Some(path) = &selected {
+                app.state::<documents::PdfDocuments>()
+                    .grant_file(Path::new(path))?;
+            }
+            Ok(selected)
         }
     })
     .await
@@ -595,19 +621,7 @@ async fn pick_document(app: AppHandle, directory: bool) -> Result<Option<String>
 /// Reads a bounded Markdown document from a local filesystem.
 #[cfg(not(target_os = "ios"))]
 fn read_local_document(path: &Path) -> Result<(PathBuf, String), String> {
-    let metadata =
-        fs::metadata(path).map_err(|error| format!("Could not inspect file: {error}"))?;
-    if !metadata.is_file() {
-        return Err("The selected path is not a file.".to_owned());
-    }
-    if metadata.len() > MAX_FILE_SIZE {
-        return Err("The selected file is larger than 16 MiB.".to_owned());
-    }
-    let path =
-        fs::canonicalize(path).map_err(|error| format!("Could not resolve file path: {error}"))?;
-    let content = fs::read_to_string(&path)
-        .map_err(|error| format!("Could not read file as UTF-8: {error}"))?;
-    Ok((path, content))
+    documents::read_markdown(path)
 }
 
 /// Validates the extension and delegates cloud-provider reads to iOS file coordination.
@@ -649,6 +663,19 @@ fn open_document(app: &AppHandle, path: &Path) -> Result<OpenedDocument, String>
         .allow_directory(&folder, true)
         .map_err(|error| format!("Could not allow document images: {error}"))?;
 
+    Ok(OpenedDocument {
+        content,
+        recent_folders: promote_opened_folder(app, &canonical_path)?,
+        path: canonical_path,
+    })
+}
+
+/// Promotes a source folder only when the platform grant authorizes browsing it.
+fn promote_opened_folder(app: &AppHandle, path: &Path) -> Result<Vec<MarkdownTreeNode>, String> {
+    let folder = path
+        .parent()
+        .ok_or("The selected file has no parent folder.")?
+        .to_path_buf();
     let mut folders = load_recent_folders(app)?;
     // A file-only iOS grant does not authorize scanning its parent directory.
     if !cfg!(target_os = "ios") || folders.iter().any(|entry| folder.starts_with(&entry.path)) {
@@ -657,11 +684,7 @@ fn open_document(app: &AppHandle, path: &Path) -> Result<OpenedDocument, String>
         restart_watcher(app, &folders);
     }
 
-    Ok(OpenedDocument {
-        content,
-        path: canonical_path,
-        recent_folders: build_recent_tree_with_threshold(app, &folders),
-    })
+    Ok(build_recent_tree_with_threshold(app, &folders))
 }
 
 /// Re-reads a Markdown file's content without touching the recent-folder LRU or watcher.
@@ -830,17 +853,38 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init());
     #[cfg(target_os = "ios")]
     let builder = builder.plugin(tauri_plugin_documents::init());
-    let builder = builder.manage(WatcherState::default()).setup(|app| {
-        initialize_document_state(app);
-        #[cfg(desktop)]
-        if let Ok(cwd) = std::env::current_dir() {
-            incoming_documents::enqueue(
-                app.handle(),
-                incoming_documents::argument_urls(std::env::args_os(), &cwd),
+    let builder = builder
+        .manage(WatcherState::default())
+        .setup(|app| {
+            app.manage(
+                documents::PdfDocuments::new(&app.path().app_cache_dir()?.join("pdf-documents"))
+                    .map_err(io::Error::other)?,
             );
-        }
-        Ok(())
-    });
+            initialize_document_state(app);
+            #[cfg(desktop)]
+            if let Ok(cwd) = std::env::current_dir() {
+                incoming_documents::enqueue(
+                    app.handle(),
+                    incoming_documents::argument_urls(std::env::args_os(), &cwd),
+                );
+            }
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            #[cfg(not(target_os = "ios"))]
+            if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
+                for path in paths
+                    .iter()
+                    .filter(|path| documents::document_kind(path).is_some())
+                {
+                    if let Err(error) = window.state::<documents::PdfDocuments>().grant_file(path) {
+                        eprintln!("Could not authorize dropped document: {error}");
+                    }
+                }
+            }
+            #[cfg(target_os = "ios")]
+            let _ = (window, event);
+        });
     #[cfg(desktop)]
     let builder = builder
         .menu(|app| {
@@ -920,6 +964,13 @@ pub fn run() {
     builder
         .invoke_handler(tauri::generate_handler![
             add_recent_folder,
+            documents::prepare_pdf_document,
+            documents::cancel_pdf_preparation,
+            documents::read_pdf_bytes,
+            documents::retain_pdf_document,
+            documents::release_pdf_document,
+            document_routing::open_document_file,
+            document_routing::reload_document_file,
             incoming_documents::take_incoming_documents,
             incoming_documents::open_incoming_document,
             load_view_state,
@@ -948,6 +999,14 @@ pub fn run() {
 /// Restores folder watchers and the new-document cutoff after native plugins initialize.
 fn initialize_document_state(app: &mut tauri::App) {
     let handle = app.handle().clone();
+    #[cfg(not(target_os = "ios"))]
+    if let Ok(storage) = view_state_path(&handle)
+        && let Ok(state) = load_view_state_from_path(&storage)
+        && let Some(path) = state.active_document
+        && documents::document_kind(&path) == Some(documents::DocumentKind::Pdf)
+    {
+        let _ = handle.state::<documents::PdfDocuments>().grant_file(&path);
+    }
     app.manage(NewFileThreshold(compute_new_file_threshold(&handle)));
     if let Ok(folders) = load_recent_folders(&handle) {
         restart_watcher(&handle, &folders);
@@ -957,6 +1016,30 @@ fn initialize_document_state(app: &mut tauri::App) {
 #[cfg(test)]
 mod tests {
     //! Unit tests for Markdown discovery, LRU ordering, and native menu routing.
+
+    /// PDF-only branches survive discovery while folder text search remains Markdown-only.
+    #[test]
+    fn discovers_mixed_and_pdf_only_folders_without_searching_pdf_bytes() {
+        let root = tempfile::tempdir().unwrap();
+        let pdf_folder = root.path().join("PDF only");
+        std::fs::create_dir(&pdf_folder).unwrap();
+        std::fs::write(pdf_folder.join("Über # 100%.PDF"), b"%PDF-1.7\n").unwrap();
+        std::fs::write(root.path().join("z.md"), "# Markdown").unwrap();
+        std::fs::write(root.path().join("a.pdf"), b"%PDF-1.7\n").unwrap();
+        std::fs::write(root.path().join("ignored.txt"), "ignored").unwrap();
+        let nodes = super::scan_directory(root.path(), std::time::UNIX_EPOCH).unwrap();
+        assert_eq!(
+            nodes
+                .iter()
+                .map(|node| node.name.as_str())
+                .collect::<Vec<_>>(),
+            ["PDF only", "a.pdf", "z.md"]
+        );
+        assert!(nodes[0].children[0].is_new);
+        let mut files = Vec::new();
+        super::collect_markdown_files(&nodes, &mut files);
+        assert_eq!(files, [root.path().join("z.md")]);
+    }
 
     /// Verifies filesystem paths containing spaces and Unicode are preserved.
     #[cfg(not(target_os = "ios"))]
@@ -1326,6 +1409,17 @@ mod tests {
             sidebar_width: Some(310.5),
             outline_width: Some(260.0),
             active_document: Some(PathBuf::from("/docs/README.md")),
+            pdf_positions: std::collections::BTreeMap::from([(
+                PathBuf::from("/docs/original.pdf"),
+                super::PdfPosition {
+                    page: 7,
+                    offset: 0.4,
+                    left: 0.2,
+                    scale: 1.25,
+                    mode: "custom".into(),
+                    rotation: 90,
+                },
+            )]),
         };
 
         save_view_state_to_path(&path, &state)?;
@@ -1343,6 +1437,15 @@ mod tests {
         assert_eq!(load_view_state_from_path(&path)?, ViewState::default());
         fs::write(&path, "not json")?;
         assert_eq!(load_view_state_from_path(&path)?, ViewState::default());
+        Ok(())
+    }
+
+    /// Older Markdown sessions deserialize without requiring PDF reading coordinates.
+    #[test]
+    fn view_state_accepts_legacy_markdown_sessions() -> Result<(), Box<dyn std::error::Error>> {
+        let state: ViewState = serde_json::from_str(r#"{"activeDocument":"/docs/old.md"}"#)?;
+        assert_eq!(state.active_document, Some(PathBuf::from("/docs/old.md")));
+        assert!(state.pdf_positions.is_empty());
         Ok(())
     }
 

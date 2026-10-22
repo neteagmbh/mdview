@@ -26,7 +26,7 @@
         id="open-button"
         class="icon-button toolbar-icon"
         type="button"
-        title="Open Markdown file (⌘/Ctrl+O)"
+        title="Open Markdown or PDF file (⌘/Ctrl+O)"
       >
         <svg aria-hidden="true" viewBox="0 0 20 20">
           <path d="M11 2.5H5A1.5 1.5 0 0 0 3.5 4v12A1.5 1.5 0 0 0 5 17.5h10a1.5 1.5 0 0 0 1.5-1.5V8L11 2.5Z M11 2.5V8h5.5M7 11h6M7 14h4" />
@@ -37,7 +37,7 @@
         id="open-directory-button"
         class="icon-button toolbar-icon"
         type="button"
-        title="Open a folder of Markdown files (⌘/Ctrl+Shift+O)"
+        title="Open a folder of Markdown and PDF files (⌘/Ctrl+Shift+O)"
       >
         <svg aria-hidden="true" viewBox="0 0 20 20">
           <path d="M2.5 7V5A1.5 1.5 0 0 1 4 3.5h4l2 2H16A1.5 1.5 0 0 1 17.5 7v1M2.5 7h15l-2 9.5h-11L2.5 7Z" />
@@ -57,7 +57,10 @@
           </svg>
           <span class="visually-hidden">Back to previous document</span>
         </button>
-        <span id="file-name" class="file-name">No file open</span>
+        <span class="current-document">
+          <span id="file-type-icon" hidden></span>
+          <span id="file-name" class="file-name">No file open</span>
+        </span>
         <span id="link-status" class="link-status" hidden aria-live="polite"></span>
       </div>
       <div class="zoom-controls" role="group" aria-label="Document zoom">
@@ -149,16 +152,16 @@
           class="sidebar-panel"
           role="tabpanel"
           aria-labelledby="folders-tab"
-          aria-label="Recent Markdown folders"
+          aria-label="Recent document folders"
         >
           <div class="sidebar-header">
             <h2>Recent folders</h2>
-            <button id="refresh-button" class="icon-button" type="button" title="Refresh folders">
+        <button id="refresh-button" class="icon-button" type="button" title="Refresh folders and current document">
               ↻
             </button>
           </div>
           <p id="tree-status" class="tree-status">Loading recent folders…</p>
-          <nav id="recent-tree" class="recent-tree" aria-label="Markdown files"></nav>
+          <nav id="recent-tree" class="recent-tree" aria-label="Markdown and PDF files"></nav>
         </section>
         <section
           id="search-panel"
@@ -181,8 +184,8 @@
             <label class="visually-hidden" for="search-scope">Search scope</label>
             <select id="search-scope" class="search-scope">
               <option value="file">This file</option>
-              <option value="directory">This folder</option>
-              <option value="all">All folders</option>
+              <option value="directory">This folder (Markdown)</option>
+              <option value="all">All folders (Markdown)</option>
             </select>
             <span id="search-count" class="search-count" aria-live="polite"></span>
             <button
@@ -231,10 +234,30 @@
         <div id="print-header" class="print-header" aria-hidden="true"></div>
         <section id="welcome" class="welcome">
           <h1>mdview</h1>
-          <p>Open a Markdown file or drop one anywhere in this window.</p>
+          <p>Open a Markdown or PDF file, or drop one anywhere in this window.</p>
           <button id="welcome-open-button" type="button">Choose a file</button>
         </section>
         <article id="markdown" class="markdown-body" hidden></article>
+        <section id="pdf-region" hidden aria-label="PDF document">
+          <div id="pdf-controls" role="group" aria-label="PDF navigation" hidden>
+            <button id="pdf-previous" type="button" aria-label="Previous PDF page">←</button>
+            <label for="pdf-page">Page</label>
+            <input id="pdf-page" type="number" min="1" value="1" inputmode="numeric" aria-label="PDF page number">
+            <span id="pdf-page-count">of 0</span>
+            <button id="pdf-next" type="button" aria-label="Next PDF page">→</button>
+            <label class="visually-hidden" for="pdf-fit">PDF page fit</label>
+            <select id="pdf-fit" aria-label="PDF page fit">
+              <option value="page-width">Fit width</option>
+              <option value="page-fit">Fit page</option>
+              <option value="actual">100%</option>
+              <option value="custom" disabled>Custom zoom</option>
+            </select>
+            <button id="pdf-rotate-left" type="button" aria-label="Rotate PDF counterclockwise">↶</button>
+            <button id="pdf-rotate-right" type="button" aria-label="Rotate PDF clockwise">↷</button>
+          </div>
+          <div id="pdf-container" tabindex="0" role="region" aria-label="PDF pages"><div id="pdf-pages" class="pdfViewer"></div></div>
+        </section>
+        <p id="document-status" class="document-status" role="status" hidden>Loading document…</p>
         <section id="error" class="error" hidden aria-live="polite"></section>
       </main>
       <aside id="outline-sidebar" class="outline-sidebar" aria-label="Document outline">
@@ -247,7 +270,7 @@
           tabindex="0"
         ></div>
         <div class="sidebar-header">
-          <h2>On this page</h2>
+          <h2 id="outline-title">On this page</h2>
         </div>
         <p id="outline-status" class="outline-status">Open a document to see its headings.</p>
         <nav
@@ -257,7 +280,19 @@
         ></nav>
       </aside>
     </div>
-    <div id="drop-overlay" class="drop-overlay" hidden>Drop Markdown file to open</div>
+    <div id="drop-overlay" class="drop-overlay" hidden>Drop a Markdown or PDF file to open</div>
+    <dialog id="pdf-password" aria-labelledby="pdf-password-title">
+      <form>
+        <h2 id="pdf-password-title">Password-protected PDF</h2>
+        <p data-password-message></p>
+        <label for="pdf-password-input">Password</label>
+        <input id="pdf-password-input" type="password" autocomplete="off" spellcheck="false">
+        <div class="pdf-password-actions">
+          <button type="button" data-password-cancel>Cancel</button>
+          <button type="submit">Open PDF</button>
+        </div>
+      </form>
+    </dialog>
     <div
       id="image-popout"
       class="image-popout"

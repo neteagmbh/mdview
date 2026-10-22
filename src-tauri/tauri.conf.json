@@ -32,7 +32,7 @@
     "active": true,
     "targets": "all",
     "category": "Utility",
-    "shortDescription": "View Markdown files in a native window",
+    "shortDescription": "View Markdown and PDF documents in a native window",
     "fileAssociations": [
       {
         "ext": ["md", "markdown", "mdown", "mkd", "mkdn"],
@@ -40,6 +40,15 @@
         "name": "Markdown document",
         "description": "Markdown document",
         "mimeType": "text/markdown",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["pdf"],
+        "contentTypes": ["com.adobe.pdf"],
+        "name": "PDF document",
+        "description": "PDF document",
+        "mimeType": "application/pdf",
         "role": "Viewer",
         "rank": "Alternate"
       },

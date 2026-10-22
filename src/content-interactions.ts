@@ -5,6 +5,7 @@ const MARKDOWN_EXTENSIONS = new Set(["md", "markdown", "mdown", "mkd", "mkdn"]);
 export type LinkClassification =
   | { kind: "external"; url: string }
   | { kind: "internal-markdown"; path: string; fragment: string | null }
+  | { kind: "internal-pdf"; path: string; fragment: string | null }
   | { kind: "other" };
 
 /** Converts an absolute file-system path into a `file://` URL usable as a resolution base. */
@@ -30,7 +31,7 @@ export function resolveMarkdownLinkPath(currentFilePath: string, href: string): 
   return fromFileUrl(resolved, useBackslashes);
 }
 
-/** Classifies a rendered link as an external web link, an internal Markdown link, or neither. */
+/** Classifies rendered web links and local Markdown/PDF destinations without accepting remote file hosts. */
 export function classifyMarkdownLink(
   href: string,
   currentFilePath: string | null,
@@ -38,7 +39,7 @@ export function classifyMarkdownLink(
   if (/^https?:/i.test(href)) {
     return { kind: "external", url: href };
   }
-  if (/^[a-z][a-z0-9+.-]*:/i.test(href)) {
+  if (/^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith("//") || href.startsWith("\\\\")) {
     return { kind: "other" };
   }
   if (!currentFilePath) {
@@ -47,13 +48,15 @@ export function classifyMarkdownLink(
 
   const [pathAndQuery, fragment] = href.split("#");
   const withoutQuery = pathAndQuery.split("?")[0];
-  const extension = withoutQuery.split(".").pop()?.toLowerCase() ?? "";
-  if (!withoutQuery || !MARKDOWN_EXTENSIONS.has(extension)) {
+  let decoded: string;
+  try { decoded = decodeURIComponent(withoutQuery); } catch { return { kind: "other" }; }
+  const extension = decoded.split(".").pop()?.toLowerCase() ?? "";
+  if (!withoutQuery || (!MARKDOWN_EXTENSIONS.has(extension) && extension !== "pdf")) {
     return { kind: "other" };
   }
 
   return {
-    kind: "internal-markdown",
+    kind: extension === "pdf" ? "internal-pdf" : "internal-markdown",
     path: resolveMarkdownLinkPath(currentFilePath, withoutQuery),
     fragment: fragment ?? null,
   };
@@ -105,7 +108,7 @@ export function attachContentInteractions(
     if (classification.kind === "external") {
       event.preventDefault();
       handlers.openExternalLink(classification.url);
-    } else if (classification.kind === "internal-markdown") {
+    } else if (classification.kind === "internal-markdown" || classification.kind === "internal-pdf") {
       event.preventDefault();
       handlers.openInternalLink(classification.path, classification.fragment);
     }

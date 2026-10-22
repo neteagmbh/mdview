@@ -63,6 +63,11 @@ final class ProbeResult: NSObject, WKScriptMessageHandler {
     /// Runs printing after WebKit is free to service print-layout requests.
     private func finish(_ observations: [String: Any], webView: WKWebView) {
         let result = observations
+        // Integrated-viewer probes validate rendering/lifetimes without invoking the print prototype.
+        if ProcessInfo.processInfo.environment["MDVIEW_PDF_RENDER_ONLY"] == "1" {
+            publish(result)
+            return
+        }
         if result["status"] as? String == "passed" {
             let info = NSPrintInfo()
             info.paperSize = NSSize(width: 612, height: 792)
@@ -137,11 +142,17 @@ application.setActivationPolicy(.accessory)
 let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 960, height: 720),
                       styleMask: [.titled, .closable], backing: .buffered, defer: false)
 window.title = "mdview PDF.js runtime check"
+// Appearance applies only to this isolated probe window, never the user's system preference.
+if let theme = ProcessInfo.processInfo.environment["MDVIEW_PDF_THEME"] {
+    window.appearance = NSAppearance(named: theme == "dark" ? .darkAqua : .aqua)
+}
 let webView = WKWebView(frame: window.contentView!.bounds, configuration: webConfig)
 window.contentView = webView
 result.webView = webView
 window.makeKeyAndOrderFront(nil)
 let url = arguments.count == 4 ? URL(string: arguments[3])!
+    : ProcessInfo.processInfo.environment["MDVIEW_PDF_RENDER_ONLY"] == "1"
+        ? URL(string: "tauri://localhost/dev/pdf-viewer-probe.html")!
     : URL(string: "tauri://localhost/dev/pdfjs-probe.html")!
 precondition(url.scheme == "tauri" || ["localhost", "127.0.0.1"].contains(url.host), "Only local probe URLs are allowed.")
 webView.load(URLRequest(url: url))

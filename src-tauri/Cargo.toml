@@ -21,6 +21,7 @@ serde_json = "1"
 tauri = { version = "~2.12.0", features = ["protocol-asset"] }
 tauri-plugin-dialog = "~2.7.2"
 tauri-plugin-opener = "~2.5.4"
+tempfile = "3"
 
 [target.'cfg(any(target_os = "windows", target_os = "linux"))'.dependencies]
 tauri-plugin-single-instance = "2"
@@ -32,9 +33,6 @@ tauri-plugin-documents = { path = "plugins/documents" }
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSPrintInfo", "NSPrintOperation", "NSWindow", "NSResponder"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSObject"] }
 objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-app-kit", "WKWebView"] }
-
-[dev-dependencies]
-tempfile = "3"
 
 # Xcode 27 SwiftPM hides swift-rs C exports in release static libraries.
 # Tauri builds its native Swift package according to Cargo's DEBUG flag.

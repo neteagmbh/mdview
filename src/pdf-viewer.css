@@ -1,0 +1,30 @@
+/* PDF pages retain original colors; only the surrounding shell follows the application theme. */
+.content { position: relative; }
+.content[data-renderer="pdf"] { width: 100%; padding: 0; overflow: hidden; }
+#pdf-region { position: absolute; inset: 0; background: #727781; }
+#pdf-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; padding: 0.35rem 0.6rem; min-height: 48px; position: relative; z-index: 2; background: #f4f6fa; color: #20252d; border-bottom: 1px solid #d1d6df; }
+#pdf-controls[hidden], #pdf-region[hidden] { display: none; }
+#pdf-controls button, #pdf-controls select { min-height: 40px; padding: 0.35rem 0.65rem; }
+#pdf-page { width: 5rem; min-height: 40px; }
+#pdf-container { position: absolute; inset: var(--pdf-controls-height, 56px) 0 0; overflow: auto; touch-action: pan-x pan-y; outline-offset: -3px; }
+#pdf-container .pdfViewer { padding: 12px 0; }
+#pdf-container .pdfViewer .page { background: white; color-scheme: light; }
+#pdf-container .fileAttachmentAnnotation { pointer-events: none; }
+.document-status { position: absolute; z-index: 3; inset: 7rem 1rem auto; text-align: center; background: #fff; color: #20252d; padding: 1rem; border-radius: 0.5rem; margin: 0 auto; max-width: 30rem; }
+#pdf-password { width: min(90vw, 26rem); padding: 1.5rem; border: 1px solid #b6bdca; border-radius: 0.75rem; }
+#pdf-password::backdrop { background: #0008; }
+#pdf-password input { width: 100%; min-height: 44px; margin: 0.5rem 0 1rem; }
+.pdf-password-actions { display: flex; justify-content: flex-end; gap: 0.75rem; }
+.pdf-password-actions button { min-height: 44px; }
+@media (prefers-color-scheme: dark) {
+  #pdf-controls { background: #262b33; color: #edf0f5; border-color: #484f5b; }
+  #pdf-region { background: #373c45; }
+}
+@media (max-width: 600px) {
+  #pdf-controls { gap: 0.2rem; }
+  #pdf-controls button { padding: 0.3rem 0.4rem; }
+  #pdf-container { top: var(--pdf-controls-height, 56px); }
+}
+@media print {
+  #pdf-region, #pdf-controls, #pdf-password, .document-status { display: none !important; }
+}

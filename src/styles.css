@@ -63,6 +63,18 @@ button:focus-visible {
   display: contents;
 }
 
+.current-document {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 1;
+  min-width: 0;
+  color: #60646c;
+}
+
+#file-type-icon { display: flex; }
+#file-type-icon[hidden] { display: none; }
+
 .file-name {
   flex: 1;
   min-width: 0;
@@ -245,6 +257,7 @@ button:focus-visible {
   line-height: 1.4;
 }
 
+.tree-status[hidden],
 .outline-status[hidden] {
   display: none;
 }
@@ -425,18 +438,29 @@ button:focus-visible {
   font-weight: 400;
 }
 
-.tree-file > span:first-child {
+.tree-file-name {
   overflow: hidden;
   flex: 1;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.tree-file::before {
-  content: "◇";
+.document-type-icon {
   flex: none;
-  margin-right: 0.35rem;
-  color: #778199;
+  width: 1.6rem;
+  height: 1.7rem;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.4;
+  stroke-linejoin: round;
+}
+
+.document-type-icon text {
+  fill: currentcolor;
+  stroke: none;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 8px;
+  font-weight: 700;
 }
 
 .tree-file-new-badge {
@@ -1083,6 +1107,7 @@ mark.search-hit-current {
     background: #202a3d;
   }
 
+  .current-document,
   .file-name,
   .tree-status,
   .tree-empty,

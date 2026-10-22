@@ -21,11 +21,18 @@ import { renderMermaidDiagrams } from "./diagrams";
 import { getEmbeddedDocument, type EmbeddedDocumentId } from "./embedded-documents";
 import { highlightCode } from "./markdown";
 import { resolveMarkdownImages } from "./markdown-images";
-import {
-  displayIncomingContent,
-  initializeIncomingDocuments,
-  type IncomingContent,
-} from "./incoming-documents";
+import { initializeIncomingDocuments } from "./incoming-documents";
+import { createDocumentOpening, pdfPage, type OpenedContent } from "./document-opening";
+import { createDocumentView, type RendererCapabilities } from "./document-view";
+import { createPdfViewer, type PdfRenderer, type PdfViewerState } from "./pdf-viewer";
+import { requestPdfPassword } from "./pdf-password";
+import type { PdfResource } from "./documents";
+import { rememberPdfPosition, type PdfPosition } from "./pdf-position";
+import { renderPdfBookmarks, type PdfBookmark } from "./pdf-outline";
+import { createDocumentReload } from "./document-reload";
+import { createDocumentNavigation } from "./document-navigation";
+import { createFolderSearchScope } from "./folder-search-scope";
+import { updateDocumentShell } from "./document-shell";
 import { handleDocumentScrollKey } from "./keyboard-scroll";
 import { createImagePopoutController } from "./image-popout";
 import {
@@ -58,12 +65,7 @@ import {
   type WindowGeometry,
 } from "./view-state";
 import "./styles.css";
-
-interface OpenedDocument {
-  content: string;
-  path: string;
-  recentFolders: MarkdownTreeNode[];
-}
+import "./pdf-viewer.css";
 
 const openButton = document.querySelector<HTMLButtonElement>("#open-button")!;
 const openDirectoryButton =
@@ -106,6 +108,17 @@ const outlineNav = document.querySelector<HTMLElement>("#document-outline")!;
 const outlineStatus = document.querySelector<HTMLElement>("#outline-status")!;
 const welcome = document.querySelector<HTMLElement>("#welcome")!;
 const markdown = document.querySelector<HTMLElement>("#markdown")!;
+const pdfRegion = document.querySelector<HTMLElement>("#pdf-region")!;
+const pdfContainer = document.querySelector<HTMLDivElement>("#pdf-container")!;
+const pdfPages = document.querySelector<HTMLDivElement>("#pdf-pages")!;
+const pdfControls = document.querySelector<HTMLElement>("#pdf-controls")!;
+const pdfPageInput = document.querySelector<HTMLInputElement>("#pdf-page")!;
+const pdfPageCount = document.querySelector<HTMLElement>("#pdf-page-count")!;
+const pdfPrevious = document.querySelector<HTMLButtonElement>("#pdf-previous")!;
+const pdfNext = document.querySelector<HTMLButtonElement>("#pdf-next")!;
+const pdfFit = document.querySelector<HTMLSelectElement>("#pdf-fit")!;
+const pdfPassword = document.querySelector<HTMLDialogElement>("#pdf-password")!;
+const documentStatus = document.querySelector<HTMLElement>("#document-status")!;
 const error = document.querySelector<HTMLElement>("#error")!;
 const content = document.querySelector<HTMLElement>("#content")!;
 const printHeader = document.querySelector<HTMLElement>("#print-header")!;
@@ -139,12 +152,32 @@ const imagePopoutController = createImagePopoutController({
 });
 
 let activePath: string | null = null;
+/** In-memory source destination retained for relative links and Back navigation. */
+let activeFragment: string | null = null;
+/** Discriminator routes shell interactions to the active document type. */
+let activeKind: "markdown" | "pdf" = "markdown";
+/** Loading and failed documents must not expose actions backed by stale content. */
+let documentReady = false;
+/** Folder search retains a root independently from the document's type or nesting depth. */
+const folderScope = createFolderSearchScope();
+/** Renderer tasks and workers have a shorter lifetime than the application shell. */
+const documentView = createDocumentView();
+/** Bookmarks are scoped to the current PDF renderer. */
+let bookmarks: PdfBookmark[] = [];
+/** Last PDF state updates page controls without inspecting upstream viewer internals. */
+let pdfState: PdfViewerState = { page: 1, pages: 0, scale: 1, mode: "page-width", rotation: 0 };
 let currentZoom = 100;
 let linkStatusTimeout: number | undefined;
 let viewStateSaveTimeout: number | undefined;
 let viewState: ViewState = { ...EMPTY_VIEW_STATE };
-/** Documents visited via in-content link navigation, most recent last. */
-const linkNavigationHistory: string[] = [];
+/** Cross-renderer Back history captures PDF coordinates before following another source. */
+const navigation = createDocumentNavigation(
+  () => activePath ? { path: activePath, fragment: activeKind === "pdf" ? null : activeFragment,
+    position: currentPdf()?.position() } : null,
+  async (destination, sourcePath) => {
+    return documentOpening.file(destination.path, destination.fragment, sourcePath, destination.position);
+  },
+);
 /** Folder expansion state retained until the application session ends. */
 const recentFolderOpenState = new Map<string, boolean>();
 
@@ -162,12 +195,6 @@ marked.setOptions({
 /** Extracts a cross-platform file name from a path. */
 function basename(path: string): string {
   return path.split(/[\\/]/).pop() || path;
-}
-
-/** Returns the parent directory of a path, or `null` when the path has no separator. */
-function parentFolder(path: string): string | null {
-  const match = path.match(/^(.*)[\\/][^\\/]+$/);
-  return match ? match[1] : null;
 }
 
 /** Schedules the current view state for native persistence after rapid changes settle. */
@@ -202,16 +229,28 @@ async function currentWindowGeometry(): Promise<WindowGeometry> {
 
 /** Displays a document-level error and clears the current outline. */
 function showError(message: unknown): void {
+  documentReady = false;
   welcome.hidden = true;
   markdown.hidden = true;
+  pdfRegion.hidden = true;
+  pdfControls.hidden = true;
+  documentStatus.hidden = true;
   error.hidden = false;
   error.textContent = message instanceof Error ? message.message : String(message);
-  printButton.disabled = true;
+  setRendererCapabilities({ print: false, find: false, outline: false }, null);
+  fileName.textContent = "Document unavailable";
+  fileName.title = "";
+  window.document.title = "mdview";
+  updateRecentTreeActivePath(tree, null);
   renderDocumentOutline();
 }
 
 /** Rebuilds the right sidebar from headings in the active document. */
 function renderDocumentOutline(): void {
+  if (activeKind === "pdf" && !pdfRegion.hidden) {
+    renderPdfBookmarks(outlineNav, outlineStatus, bookmarks);
+    return;
+  }
   outlineNav.replaceChildren();
   const headings = markdown.hidden ? [] : buildHeadingOutline(markdown);
   updateOutlineStatus(outlineStatus, headings.length > 0);
@@ -234,12 +273,95 @@ function renderDocumentOutline(): void {
   });
 }
 
+/** Keeps unavailable PDF actions from falling through to Markdown adapters. */
+function setRendererCapabilities(capabilities: RendererCapabilities, kind: "markdown" | "pdf" | null = activeKind): void {
+  updateDocumentShell({ print: printButton, outline: outlineToggle,
+    zoom: [zoomOutButton, zoomResetButton, zoomInButton],
+    fileScope: searchScope.querySelector<HTMLOptionElement>('option[value="file"]')!,
+    outlineTitle: document.querySelector("#outline-title")!, outlineNav,
+    fileIcon: document.querySelector("#file-type-icon")! }, kind, capabilities);
+  searchInput.disabled = searchScope.value === "file" && !capabilities.find;
+  if (searchInput.disabled) searchPrev.disabled = searchNext.disabled = true;
+}
+
+/** Persists a bounded per-source reading history without temporary handles or document content. */
+function savePdfPosition(path: string, position: PdfPosition): void {
+  updateViewState({ pdfPositions: rememberPdfPosition(viewState.pdfPositions, path, position) });
+}
+
+/** Adapts the existing Markdown renderer to the same cancellable view contract as PDFs. */
+function showMarkdown(source: string, title: string, path: string | null,
+  isCurrent: () => boolean): Promise<void> {
+  return documentView.show(signal => ({
+    kind: "markdown", capabilities: { print: true, find: true, outline: true },
+    ready: renderMarkdownSource(source, title, path, () => !signal.aborted && isCurrent()),
+    zoom: direction => applyZoom(direction === 0 ? 100 : stepZoom(currentZoom, direction)),
+    destroy: async () => undefined,
+  }));
+}
+
+/** Reflects the actual PDF page/scale state, including changes caused by scrolling or internal links. */
+function updatePdfControls(state: PdfViewerState): void {
+  pdfState = state;
+  pdfPageInput.value = String(state.page);
+  pdfPageInput.max = String(state.pages);
+  pdfPageCount.textContent = `of ${state.pages}`;
+  pdfPrevious.disabled = state.page <= 1;
+  pdfNext.disabled = state.page >= state.pages;
+  pdfFit.value = state.mode === "custom" && state.scale === 1 ? "actual" : state.mode;
+  zoomResetButton.textContent = `${Math.round(state.scale * 100)}%`;
+  zoomResetButton.disabled = false;
+  zoomOutButton.disabled = state.scale <= 0.25;
+  zoomInButton.disabled = state.scale >= 5;
+  zoomResetButton.title = `Reset PDF zoom (currently ${Math.round(state.scale * 100)}%)`;
+  if (!documentReady) zoomOutButton.disabled = zoomResetButton.disabled = zoomInButton.disabled = true;
+}
+
+/** Returns PDF-specific controls only while the PDF renderer still owns the active view. */
+function currentPdf(): PdfRenderer | null {
+  const renderer = documentView.current;
+  return renderer?.kind === "pdf" ? renderer as PdfRenderer : null;
+}
+
+pdfPrevious.addEventListener("click", () => currentPdf()?.goToPage(pdfState.page - 1));
+pdfNext.addEventListener("click", () => currentPdf()?.goToPage(pdfState.page + 1));
+pdfPageInput.addEventListener("change", () => {
+  currentPdf()?.goToPage(pdfPageInput.valueAsNumber);
+  pdfPageInput.value = String(pdfState.page);
+});
+pdfPageInput.addEventListener("keydown", event => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    currentPdf()?.goToPage(pdfPageInput.valueAsNumber);
+    pdfPageInput.value = String(pdfState.page);
+    pdfContainer.focus();
+  }
+});
+pdfFit.addEventListener("change", () => {
+  const selected = pdfFit.value;
+  if (selected === "page-width" || selected === "page-fit" || selected === "actual") currentPdf()?.fit(selected);
+});
+document.querySelector("#pdf-rotate-left")!.addEventListener("click", () => currentPdf()?.rotate(-1));
+document.querySelector("#pdf-rotate-right")!.addEventListener("click", () => currentPdf()?.rotate(1));
+new ResizeObserver(() => {
+  const height = pdfControls.getBoundingClientRect().height;
+  if (height > 0) pdfRegion.style.setProperty("--pdf-controls-height", `${height}px`);
+}).observe(pdfControls);
+document.addEventListener("keydown", event => {
+  if ((event.ctrlKey || event.metaKey) && ["+", "=", "-", "0"].includes(event.key) && !pdfPassword.open && documentReady) {
+    event.preventDefault();
+    documentView.current?.zoom(event.key === "0" ? 0 : event.key === "-" ? -1 : 1);
+  }
+});
+
 /** Opens or closes the document-outline sidebar and updates accessibility state. */
 function setOutlineOpen(open: boolean): void {
   appShell.classList.toggle("outline-closed", !open);
   outlineSidebar.hidden = !open;
   outlineToggle.setAttribute("aria-expanded", String(open));
-  outlineToggle.title = open ? "Close document outline" : "Open document outline";
+  const label = activeKind === "pdf" ? "PDF bookmarks" : "document outline";
+  outlineToggle.title = `${open ? "Close" : "Open"} ${label}`;
+  outlineToggle.setAttribute("aria-label", outlineToggle.title);
 }
 
 /** Shows a link's destination briefly before handing it off to the system browser. */
@@ -261,16 +383,13 @@ function openExternalLink(url: string): void {
 
 /** Enables or disables the back-navigation control based on the link history. */
 function updateBackButtonState(): void {
-  backButton.disabled = linkNavigationHistory.length === 0;
+  backButton.disabled = !navigation.hasBack;
 }
 
 /** Navigates back to the document visited before the most recent link click. */
 async function navigateBack(): Promise<void> {
-  const previousPath = linkNavigationHistory.pop();
+  await navigation.back();
   updateBackButtonState();
-  if (previousPath) {
-    await loadFile(previousPath);
-  }
 }
 
 
@@ -295,9 +414,10 @@ async function copyTreeText(text: string): Promise<void> {
 
 /** Rebuilds the recent-folder tree while preserving the active file marker. */
 function renderRecentTree(folders: MarkdownTreeNode[]): void {
+  folderScope.refresh(folders);
   tree.replaceChildren();
   treeStatus.hidden = folders.length > 0;
-  treeStatus.textContent = "Open a folder to browse its Markdown files.";
+  treeStatus.textContent = "Open a folder to browse its Markdown and PDF files.";
   sortPinnedFirst(folders).forEach((folder) => {
     tree.append(
       createRecentTreeNode(
@@ -323,10 +443,21 @@ async function renderMarkdownSource(
   source: string,
   title: string,
   path: string | null,
+  isCurrent: () => boolean = () => true,
 ): Promise<void> {
   const rendered = await marked.parse(source);
+  if (!isCurrent()) return;
 
   activePath = path;
+  activeKind = "markdown";
+  documentReady = true;
+  pdfRegion.hidden = true;
+  pdfControls.hidden = true;
+  documentStatus.hidden = true;
+  delete content.dataset.renderer;
+  setRendererCapabilities({ print: true, find: true, outline: true });
+  zoomResetButton.disabled = false;
+  applyZoom(currentZoom);
   updateRecentTreeActivePath(tree, activePath);
   markdown.innerHTML = DOMPurify.sanitize(rendered);
   resolveMarkdownImages(markdown, path);
@@ -341,6 +472,7 @@ async function renderMarkdownSource(
     dark: window.matchMedia("(prefers-color-scheme: dark)").matches,
   });
   await pendingDiagramRender;
+  if (!isCurrent()) return;
   printButton.disabled = false;
   content.scrollTo({ top: 0 });
   markdown.focus();
@@ -352,7 +484,9 @@ async function renderMarkdownSource(
 async function loadEmbeddedDocument(id: EmbeddedDocumentId): Promise<void> {
   try {
     const document = getEmbeddedDocument(id);
-    await renderMarkdownSource(document.content, document.title, null);
+    const isCurrent = await documentOpening.clear();
+    activeFragment = null;
+    await showMarkdown(document.content, document.title, null, isCurrent);
   } catch (embeddedError) {
     showError(embeddedError);
   }
@@ -416,26 +550,129 @@ async function refreshRecentTree(): Promise<void> {
   }
 }
 
-/** Loads, renders, and activates a Markdown document from an explicit path. */
-async function loadFile(path: string): Promise<void> {
-  try {
-    const document = await invoke<OpenedDocument>("open_markdown_file", { path });
-    await displayOpenedDocument(document);
-  } catch (loadError) {
-    if (viewState.activeDocument === path) {
-      updateViewState({ activeDocument: null });
-    }
-    showError(loadError);
-  }
+/** Opens any supported document path through the shared renderer-discriminated native route. */
+async function loadFile(path: string, fragment: string | null = null): Promise<boolean> {
+  const opened = await navigation.visit(path, fragment);
+  updateBackButtonState();
+  return opened;
 }
 
 /** Displays a validated picker or OS document through the same persistence and rendering path. */
-async function displayOpenedDocument(document: OpenedDocument): Promise<void> {
+async function displayOpenedDocument(document: OpenedContent, fragment: string | null,
+  isCurrent: () => boolean, resource: PdfResource | null, position?: PdfPosition | null): Promise<void> {
   linkStatus.hidden = true;
-  await renderMarkdownSource(document.content, basename(document.path), document.path);
+  const path = document.kind === "pdf" ? document.document.path : document.path;
+  folderScope.file(path);
+  if (document.kind === "markdown") {
+    await showMarkdown(document.content, basename(path), path, isCurrent);
+    if (!isCurrent()) return;
+    if (fragment) {
+      let id = fragment;
+      try { id = decodeURIComponent(fragment); } catch { /* Keep literal malformed anchors harmless. */ }
+      const heading = markdown.querySelector<HTMLElement>(`[id="${CSS.escape(id)}"]`);
+      if (heading) scrollHeadingIntoView(heading);
+    }
+  } else {
+    activePath = path;
+    activeKind = "pdf";
+    bookmarks = [];
+    markdown.replaceChildren();
+    markdown.hidden = true;
+    welcome.hidden = true;
+    error.hidden = true;
+    pdfRegion.hidden = false;
+    pdfControls.hidden = false;
+    content.dataset.renderer = "pdf";
+    documentStatus.hidden = false;
+    documentStatus.textContent = `Loading ${document.document.name}…`;
+    fileName.textContent = document.document.name;
+    fileName.title = path;
+    window.document.title = `${document.document.name} — mdview`;
+    setRendererCapabilities({ print: false, find: false, outline: false });
+    renderDocumentOutline();
+    searchController.refreshHighlights();
+    if (!resource) throw new Error("PDF resource ownership is missing.");
+    await documentView.show(signal => createPdfViewer({
+      container: pdfContainer, viewer: pdfPages, resource, signal, page: pdfPage(fragment),
+      position: position ?? viewState.pdfPositions?.[path],
+      positionChanged: position => { if (isCurrent()) savePdfPosition(path, position); },
+      outline: items => { bookmarks = items; renderDocumentOutline(); },
+      changed: updatePdfControls, openExternal: openExternalLink,
+      password: (incorrect, passwordSignal) => requestPdfPassword(pdfPassword, document.document.name, incorrect, passwordSignal),
+      failed: failure => {
+        if (signal.aborted) return;
+        void documentOpening.clear().then(isCurrent => {
+          if (isCurrent()) showError(failure);
+        }).catch(() => undefined);
+      },
+    }));
+    if (!isCurrent()) return;
+    documentStatus.hidden = true;
+    documentReady = true;
+    updatePdfControls(pdfState);
+    setRendererCapabilities({ print: false, find: true, outline: true });
+    searchController.refreshHighlights();
+  }
+  if (!isCurrent()) return;
+  activeFragment = fragment;
   renderRecentTree(document.recentFolders);
-  updateViewState({ activeDocument: document.path });
+  updateViewState({ activeDocument: path });
 }
+
+/** Every file entry point shares cancellation, stale-result cleanup, and resource ownership. */
+const documentOpening = createDocumentOpening({
+  display: displayOpenedDocument,
+  reset: async () => {
+    documentReady = false;
+    const position = currentPdf()?.position();
+    if (activePath && position) savePdfPosition(activePath, position);
+    const stopped = documentView.clear();
+    searchController.refreshHighlights();
+    pdfRegion.hidden = true;
+    pdfControls.hidden = true;
+    markdown.hidden = true;
+    welcome.hidden = true;
+    error.hidden = true;
+    setRendererCapabilities({ print: false, find: false, outline: false }, null);
+    documentStatus.hidden = false;
+    documentStatus.textContent = "Loading document…";
+    await stopped;
+  },
+  folder: (path, folders) => {
+    folderScope.folder(path);
+    recentFolderOpenState.set(path, true);
+    renderRecentTree(folders);
+    setSidebarOpen(true);
+    sidebarTabs.reveal("folders");
+  },
+  error: (failure, preserveSource) => {
+    if (!preserveSource) {
+      activePath = null;
+      activeFragment = null;
+      updateViewState({ activeDocument: null });
+    }
+    if (failure instanceof DOMException && failure.name === "AbortError") {
+      documentStatus.hidden = true;
+      pdfRegion.hidden = true;
+      error.hidden = true;
+      welcome.hidden = false;
+      fileName.textContent = "No file open";
+      fileName.title = "";
+      window.document.title = "mdview";
+      setRendererCapabilities({ print: false, find: false, outline: false }, null);
+      delete content.dataset.renderer;
+      applyZoom(currentZoom);
+      zoomResetButton.disabled = zoomInButton.disabled = zoomOutButton.disabled = true;
+    } else showError(failure);
+  },
+});
+window.addEventListener("pagehide", () => {
+  const position = currentPdf()?.position();
+  if (activePath && position) savePdfPosition(activePath, position);
+  window.clearTimeout(viewStateSaveTimeout);
+  void invoke("save_view_state", { state: viewState }).catch(() => undefined);
+  void documentOpening.clear();
+});
 
 /** Restores persisted layout and document state, then starts observing window changes. */
 async function initializeViewState(): Promise<void> {
@@ -490,32 +727,21 @@ async function initializeViewState(): Promise<void> {
  * mdview is a read-only viewer, so there is no unsaved local state to reconcile with the change.
  */
 async function reloadActiveDocument(): Promise<void> {
-  if (!activePath) {
-    return;
-  }
-  const scrollPosition = { top: content.scrollTop, left: content.scrollLeft };
-  try {
-    const source = await invoke<string>("read_markdown_file", { path: activePath });
-    await renderMarkdownSource(source, basename(activePath), activePath);
-    content.scrollTo(scrollPosition);
-  } catch (reloadError) {
-    showError(reloadError);
-  }
+  reloadController.request();
 }
 
-/** Follows a relative Markdown link, recording the current document for back navigation. */
+/** A single reload queue preserves source identity and page position through atomic replacements. */
+const reloadController = createDocumentReload(() => activePath, async path => {
+  const scrollPosition = { top: content.scrollTop, left: content.scrollLeft };
+  const success = await documentOpening.reload(path, activeKind === "pdf" ? null : activeFragment);
+  if (success && activePath === path && activeKind === "markdown") content.scrollTo(scrollPosition);
+  return success;
+});
+
+/** Follows a local document link, preserving Markdown anchors and requested PDF pages for Back. */
 async function openInternalLink(path: string, fragment: string | null): Promise<void> {
-  if (activePath) {
-    linkNavigationHistory.push(activePath);
-    updateBackButtonState();
-  }
-  await loadFile(path);
-  if (fragment) {
-    const heading = document.getElementById(decodeURIComponent(fragment));
-    if (heading) {
-      scrollHeadingIntoView(heading);
-    }
-  }
+  await navigation.follow(path, fragment);
+  updateBackButtonState();
 }
 
 /** Prompts for a directory and adds it to the persisted recent folders. */
@@ -525,6 +751,7 @@ async function chooseDirectory(): Promise<void> {
 
     if (selected) {
       const folders = await invoke<MarkdownTreeNode[]>("add_recent_folder", { path: selected });
+      folderScope.folder(folders[0]?.path ?? selected);
       renderRecentTree(folders);
     }
   } catch (directoryError) {
@@ -534,7 +761,7 @@ async function chooseDirectory(): Promise<void> {
   }
 }
 
-/** Prompts for a Markdown file and opens the selected document. */
+/** Prompts for a Markdown/PDF file and opens the selected source through the common route. */
 async function chooseFile(): Promise<void> {
   try {
     const selected = await invoke<string | null>("pick_document", { directory: false });
@@ -548,6 +775,7 @@ async function chooseFile(): Promise<void> {
 
 /** Opens native desktop/mobile printing or the browser fallback on unsupported platforms. */
 function printDocument(): void {
+  if (!documentReady || !documentView.current?.capabilities.print) return;
   void openPrintDialog(
     () => printWithNativeMargins(() => invoke<boolean>("print_document")),
     () => window.print(),
@@ -571,10 +799,10 @@ openButton.addEventListener("click", () => void chooseFile());
 openDirectoryButton.addEventListener("click", () => void chooseDirectory());
 backButton.addEventListener("click", () => void navigateBack());
 welcomeOpenButton.addEventListener("click", () => void chooseFile());
-refreshButton.addEventListener("click", () => void refreshRecentTree());
-zoomOutButton.addEventListener("click", () => applyZoom(stepZoom(currentZoom, -1)));
-zoomResetButton.addEventListener("click", () => applyZoom(100));
-zoomInButton.addEventListener("click", () => applyZoom(stepZoom(currentZoom, 1)));
+refreshButton.addEventListener("click", () => { void refreshRecentTree(); void reloadActiveDocument(); });
+zoomOutButton.addEventListener("click", () => documentView.current?.zoom(-1));
+zoomResetButton.addEventListener("click", () => documentView.current?.zoom(0));
+zoomInButton.addEventListener("click", () => documentView.current?.zoom(1));
 printButton.addEventListener("click", printDocument);
 outlineToggle.addEventListener("click", () => {
   setOutlineOpen(outlineSidebar.hidden !== false);
@@ -589,7 +817,7 @@ embeddedDocumentLinks.forEach((link) => {
 
 /** Runs a backend Markdown search scoped to a folder or all recent folders. */
 async function searchFiles(query: string, scope: SearchScope): Promise<FileSearchResult[]> {
-  const root = scope === "directory" ? (activePath ? parentFolder(activePath) : null) : null;
+  const root = scope === "directory" ? folderScope.root : null;
   if (scope === "directory" && !root) {
     return [];
   }
@@ -616,9 +844,10 @@ const searchController = createSearchController({
   closeButton: searchClose,
   results: searchResults,
   getContentRoot: () => markdown,
+  getFileFind: () => documentReady ? currentPdf()?.find ?? null : null,
   searchFiles,
   // Skip reloading when the clicked result is already the active document.
-  openResult: (path) => (path === activePath ? Promise.resolve() : loadFile(path)),
+  openResult: async (path) => { if (path !== activePath) await loadFile(path); },
   onOpenChange: (open) => {
     if (open) {
       setSidebarOpen(true);
@@ -629,11 +858,15 @@ const searchController = createSearchController({
     searchToggle.setAttribute("aria-expanded", String(open));
   },
 });
+searchScope.addEventListener("change", () => {
+  searchInput.disabled = searchScope.value === "file" && !documentReady;
+});
 
 searchToggle.addEventListener("click", () => {
   searchController.toggle();
 });
 document.addEventListener("keydown", (event) => {
+  if (pdfPassword.open) return;
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
     event.preventDefault();
     searchController.open();
@@ -642,6 +875,7 @@ document.addEventListener("keydown", (event) => {
 let restorePrintDocument: (() => void) | null = null;
 /** Prepares print assets once, before the native dialog can measure the document. */
 function preparePrintDocument(): void {
+  if (!documentView.current?.capabilities.print) return;
   restorePrintDocument ??= prepareLightModePrint(markdown);
 }
 window.addEventListener("beforeprint", preparePrintDocument);
@@ -651,7 +885,7 @@ window.addEventListener("afterprint", () => {
 });
 document.addEventListener("keydown", (event) => {
   if (!aboutDialog.open) {
-    handleDocumentScrollKey(event, content);
+    handleDocumentScrollKey(event, activeKind === "pdf" ? pdfContainer : content);
   }
 });
 attachContentInteractions(markdown, {
@@ -697,6 +931,7 @@ void getCurrentWebview().onDragDropEvent((event) => {
 });
 
 applyZoom(100);
+setRendererCapabilities({ print: false, find: false, outline: false }, null);
 aboutIcon.src = appIconUrl;
 attachSidebarResize({
   handle: sidebarResizeHandle,
@@ -726,13 +961,7 @@ void initializeIncomingDocuments({
     }
   },
   open: async (url) => {
-    const incoming = await invoke<IncomingContent<OpenedDocument>>("open_incoming_document", { url });
-    await displayIncomingContent(incoming, displayOpenedDocument, (path, folders) => {
-      recentFolderOpenState.set(path, true);
-      renderRecentTree(folders);
-      setSidebarOpen(true);
-      sidebarTabs.reveal("folders");
-    });
+    await documentOpening.incoming(url);
   },
   reportAdditional: (count) => {
     window.clearTimeout(linkStatusTimeout);

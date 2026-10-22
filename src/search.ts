@@ -1,3 +1,5 @@
+import type { FileFindAdapter } from "./pdf-search";
+
 /**
  * In-document and cross-folder Markdown search.
  *
@@ -233,6 +235,8 @@ export interface SearchControllerOptions {
   openResult: (path: string) => Promise<void>;
   /** Invoked whenever the search session opens or closes, e.g. to reveal a sidebar tab. */
   onOpenChange?: (open: boolean) => void;
+  /** Supplies a renderer-owned adapter when the current file is a PDF. */
+  getFileFind?: () => FileFindAdapter | null;
 }
 
 /** Imperative handle for opening and closing the search bar from outside the module. */
@@ -264,6 +268,15 @@ export function createSearchController(options: SearchControllerOptions): Search
 
   let matches: HTMLElement[] = [];
   let currentIndex = -1;
+  let fileFind: FileFindAdapter | null = null;
+  let searchGeneration = 0;
+
+  /** Invalidates asynchronous results before a scope, query, document, or visibility change. */
+  function stopFileFind(): void {
+    searchGeneration++;
+    fileFind?.clear();
+    fileFind = null;
+  }
 
   /** Returns the scope currently selected in the dropdown. */
   function currentScope(): SearchScope {
@@ -296,6 +309,27 @@ export function createSearchController(options: SearchControllerOptions): Search
 
   /** Re-highlights the active document, lists the matches, and focuses the first one. */
   function runFileSearch(): void {
+    const adapter = options.getFileFind?.();
+    if (adapter) {
+      clearFileSearchHighlights(getContentRoot());
+      matches = [];
+      fileFind = adapter;
+      const ticket = searchGeneration;
+      adapter.search(input.value, state => {
+        if (ticket !== searchGeneration || fileFind !== adapter) return;
+        currentIndex = state.current - 1;
+        countLabel.textContent = state.pending && !state.total ? "Searching…" : formatMatchCount(currentIndex, state.total);
+        previousButton.disabled = nextButton.disabled = state.total === 0;
+        results.replaceChildren();
+        const summary = document.createElement("p");
+        summary.className = "search-results-empty";
+        summary.textContent = state.page ? `Page ${state.page} · match ${state.current} of ${state.total}`
+          : state.pending ? "Searching PDF pages…" : "No matches found.";
+        results.append(summary);
+        results.hidden = false;
+      });
+      return;
+    }
     matches = highlightFileMatches(getContentRoot(), input.value);
     currentIndex = matches.length > 0 ? 0 : -1;
     renderCurrentFileMatches();
@@ -307,6 +341,7 @@ export function createSearchController(options: SearchControllerOptions): Search
 
   /** Advances the in-file selection by `delta`, wrapping around the ends. */
   function moveSelection(delta: number): void {
+    if (fileFind) { fileFind.move(delta < 0); return; }
     if (matches.length === 0) {
       return;
     }
@@ -320,7 +355,12 @@ export function createSearchController(options: SearchControllerOptions): Search
    * search is active, keeping the match list in sync for the file scope.
    */
   function refreshHighlights(): void {
+    stopFileFind();
     if (bar.hidden || !input.value.trim()) {
+      return;
+    }
+    if (options.getFileFind?.()) {
+      if (currentScope() === "file") runFileSearch();
       return;
     }
     matches = highlightFileMatches(getContentRoot(), input.value);
@@ -333,12 +373,17 @@ export function createSearchController(options: SearchControllerOptions): Search
 
   /** Runs a backend search and renders its results. */
   async function runDirectorySearch(): Promise<void> {
+    const ticket = searchGeneration;
     clearFileSearchHighlights(getContentRoot());
     matches = [];
     currentIndex = -1;
     updateFileNavigation();
+    countLabel.textContent = "Searching…";
 
     const found = await searchFiles(input.value, currentScope());
+    if (ticket !== searchGeneration) return;
+    const total = found.reduce((count, file) => count + file.matches.length, 0);
+    countLabel.textContent = total ? `${total} ${total === 1 ? "match" : "matches"}` : "No results";
     renderSearchResults(results, found, (result, match) => {
       const matchIndex = Math.max(0, result.matches.indexOf(match));
       void openResult(result.path).then(() => {
@@ -355,6 +400,7 @@ export function createSearchController(options: SearchControllerOptions): Search
 
   /** Dispatches the search according to the active scope. */
   function runSearch(): void {
+    stopFileFind();
     if (!input.value.trim()) {
       clearFileSearchHighlights(getContentRoot());
       matches = [];
@@ -379,6 +425,7 @@ export function createSearchController(options: SearchControllerOptions): Search
   }
 
   function close(): void {
+    stopFileFind();
     bar.hidden = true;
     results.hidden = true;
     results.replaceChildren();
@@ -405,7 +452,7 @@ export function createSearchController(options: SearchControllerOptions): Search
   input.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
-      if (currentScope() === "file" && matches.length > 0) {
+      if (currentScope() === "file" && (fileFind || matches.length > 0)) {
         moveSelection(event.shiftKey ? -1 : 1);
       } else {
         runSearch();

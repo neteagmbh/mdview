@@ -1,4 +1,5 @@
 import { clampSidebarWidth } from "./sidebar-resize";
+import { normalizePdfPosition, type PdfPosition } from "./pdf-position";
 
 /** Minimum persisted inner window width accepted during restoration. */
 export const MIN_WINDOW_WIDTH = 420;
@@ -23,6 +24,8 @@ export interface ViewState {
   sidebarWidth: number | null;
   outlineWidth: number | null;
   activeDocument: string | null;
+  /** Optional per-source PDF positions; older Markdown-only state files omit this field. */
+  pdfPositions?: Record<string, PdfPosition>;
 }
 
 /** Empty state used before native persistence has loaded. */
@@ -64,5 +67,11 @@ export function normalizeViewState(state: ViewState): ViewState {
       typeof state.activeDocument === "string" && state.activeDocument.trim()
         ? state.activeDocument
         : null,
+    ...(state.pdfPositions && typeof state.pdfPositions === "object" ? {
+      pdfPositions: Object.fromEntries(Object.entries(state.pdfPositions).flatMap(([path, value]) => {
+        const position = normalizePdfPosition(value);
+        return path.trim() && position ? [[path, position]] : [];
+      }).slice(-20)),
+    } : {}),
   };
 }

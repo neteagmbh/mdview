@@ -27,6 +27,13 @@ pub struct Document {
     pub content: String,
 }
 
+/// Original provider identity after copying into the Rust-owned private snapshot directory.
+#[derive(Deserialize)]
+pub struct Snapshot {
+    /// Resolved source path, never the private snapshot or a coordination staging URL.
+    pub path: String,
+}
+
 impl<R: Runtime> Documents<R> {
     /// Retains an OS-supplied document URL and returns its decoded filesystem path.
     pub fn accept(&self, url: &str) -> Result<Selection, String> {
@@ -55,6 +62,25 @@ impl<R: Runtime> Documents<R> {
             .run_mobile_plugin(
                 "read",
                 serde_json::json!({ "path": path, "maxSize": max_size }),
+            )
+            .map_err(|error| error.to_string())
+    }
+
+    /// Copies authorized provider bytes during coordination without serializing binary data.
+    pub fn snapshot(
+        &self,
+        path: &str,
+        destination: &str,
+        cancellation_path: &str,
+        max_size: u64,
+    ) -> Result<Snapshot, String> {
+        self.0
+            .run_mobile_plugin(
+                "snapshot",
+                serde_json::json!({
+                    "path": path, "destination": destination, "cancellationPath": cancellation_path,
+                    "maxSize": max_size,
+                }),
             )
             .map_err(|error| error.to_string())
     }

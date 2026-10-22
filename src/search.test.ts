@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { describe, expect, it, vi } from "vitest";
+import type { FileFindAdapter, FileFindState } from "./pdf-search";
 import {
   clearFileSearchHighlights,
   createSearchController,
@@ -191,12 +192,27 @@ describe("renderFileMatchList", () => {
 });
 
 describe("createSearchController", () => {
+  /** Folder results must not retain the current-file zero-hit counter while valid matches are listed. */
+  it("reports Markdown folder counts independently from the active PDF's text", async () => {
+    const searchFiles = vi.fn(async () => [{ path: "/docs/Notes.md", name: "Notes.md",
+      matches: [{ line: 3, column: 0, lineText: "root-only-needle" }] }]);
+    const h = harness("", { searchFiles });
+    h.scopeSelect.value = "directory";
+    h.input.value = "root-only-needle";
+    h.input.dispatchEvent(new Event("input"));
+    expect(h.countLabel.textContent).toBe("Searching…");
+    await Promise.resolve();
+    expect(h.countLabel.textContent).toBe("1 match");
+    expect(h.results.textContent).toContain("Notes.md");
+    expect(h.previousButton.disabled && h.nextButton.disabled).toBe(true);
+  });
   /** Builds a full search-bar DOM harness wired to an in-memory content root. */
   function harness(
     html: string,
     overrides: {
       searchFiles?: (query: string, scope: string) => Promise<FileSearchResult[]>;
       openResult?: (path: string) => Promise<void>;
+      getFileFind?: () => FileFindAdapter | null;
     } = {},
   ) {
     window.HTMLElement.prototype.scrollIntoView = vi.fn();
@@ -227,9 +243,32 @@ describe("createSearchController", () => {
       getContentRoot: () => content,
       searchFiles: overrides.searchFiles ?? vi.fn().mockResolvedValue([]),
       openResult: overrides.openResult ?? vi.fn().mockResolvedValue(undefined),
+      getFileFind: overrides.getFileFind,
     });
-    return { bar, input, scopeSelect, countLabel, results, content, controller };
+    return { bar, input, scopeSelect, countLabel, results, content, controller, previousButton, nextButton };
   }
+
+  /** PDF controls share query/count/Enter/Shift-Enter behavior without mutating Markdown text nodes. */
+  it("routes current-file PDF find and invalidates stale updates on scope changes", async () => {
+    let update!: (state: FileFindState) => void;
+    const adapter: FileFindAdapter = { search: vi.fn((_query, changed) => { update = changed; }), move: vi.fn(), clear: vi.fn() };
+    const h = harness("<p>needle</p>", { getFileFind: () => adapter });
+    h.input.value = "needle"; h.input.dispatchEvent(new Event("input"));
+    update({ current: 2, total: 3, pending: false, page: 40, textOffset: 24 });
+    expect(h.countLabel.textContent).toBe("2 of 3");
+    expect(h.results.textContent).toContain("Page 40");
+    expect(h.content.querySelector("mark")).toBeNull();
+    h.nextButton.click();
+    h.input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", shiftKey: true }));
+    expect(adapter.move).toHaveBeenCalledWith(false);
+    expect(adapter.move).toHaveBeenCalledWith(true);
+    h.scopeSelect.value = "directory"; h.scopeSelect.dispatchEvent(new Event("change"));
+    await Promise.resolve();
+    update({ current: 99, total: 100, pending: false });
+    expect(h.countLabel.textContent).not.toContain("99");
+    expect(adapter.clear).toHaveBeenCalled();
+    h.controller.close();
+  });
 
   /** Verifies the file scope now lists its matches alongside the highlights. */
   it("shows the match list for an in-file search", () => {

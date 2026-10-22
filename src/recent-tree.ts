@@ -1,11 +1,17 @@
-export interface MarkdownTreeNode {
+import { createDocumentTypeIcon } from "./document-type-icon";
+
+/** A directory or supported Markdown/PDF file in the shared recent-folder browser. */
+export interface DocumentTreeNode {
   name: string;
   path: string;
   isDirectory: boolean;
   isNew: boolean;
   pinned: boolean;
-  children: MarkdownTreeNode[];
+  children: DocumentTreeNode[];
 }
+
+/** Compatibility name for existing tree consumers; nodes now include PDFs. */
+export type MarkdownTreeNode = DocumentTreeNode;
 
 export interface RecentTreeActions {
   activePath: string | null;
@@ -103,7 +109,7 @@ function appendChildren(
   if (node.children.length === 0) {
     const empty = document.createElement("span");
     empty.className = "tree-empty";
-    empty.textContent = "No Markdown files";
+    empty.textContent = "No Markdown or PDF files";
     container.append(empty);
     return;
   }
@@ -176,7 +182,7 @@ function createRootNode(node: MarkdownTreeNode, actions: RecentTreeActions): HTM
   return root;
 }
 
-/** Creates a folder or file control for the recent Markdown tree. */
+/** Creates a folder or typed document control for the mixed recent-folder tree. */
 export function createRecentTreeNode(
   node: MarkdownTreeNode,
   actions: RecentTreeActions,
@@ -211,6 +217,9 @@ export function createRecentTreeNode(
   button.className = "tree-file";
   button.title = node.path;
   button.dataset.path = node.path;
+  const pdf = /\.pdf$/i.test(node.name);
+  button.dataset.kind = pdf ? "pdf" : "markdown";
+  button.setAttribute("aria-label", `${node.name}, ${pdf ? "PDF" : "Markdown"} document${node.isNew ? ", new" : ""}`);
   button.setAttribute("aria-current", node.path === actions.activePath ? "page" : "false");
   button.addEventListener("click", () => actions.openFile(node.path));
   button.addEventListener("contextmenu", (event) => {
@@ -218,8 +227,9 @@ export function createRecentTreeNode(
   });
 
   const label = document.createElement("span");
+  label.className = "tree-file-name";
   label.textContent = node.name;
-  button.append(label);
+  button.append(createDocumentTypeIcon(pdf ? "pdf" : "markdown"), label);
 
   if (node.isNew) {
     const badge = document.createElement("span");

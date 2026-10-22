@@ -2,6 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <!-- PDF uses the system com.adobe.pdf UTI via tauri.conf.json; only Markdown needs importing. -->
     <key>UTImportedTypeDeclarations</key>
     <array>
         <dict>

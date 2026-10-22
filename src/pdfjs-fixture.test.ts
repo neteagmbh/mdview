@@ -5,6 +5,16 @@ import { createCanvas } from "@napi-rs/canvas";
 import { preparePdfDocument } from "./pdfjs-compatibility";
 
 describe("PDF.js probe fixture", () => {
+  /** Long-document scheduling probes require the catalog count to match every generated page. */
+  it("supports long fixtures with addressable distant pages", async () => {
+    const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    const task = getDocument({ data: createPdfjsFixture(60) });
+    try {
+      const pdf = await task.promise;
+      expect(pdf.numPages).toBe(60);
+      expect((await pdf.getPage(40)).pageNumber).toBe(40);
+    } finally { await task.destroy(); }
+  });
   /** A real parser verifies the generated cross-reference table, fonts, pages and link annotations. */
   it("parses all three pages and their twelve font samples and links", async () => {
     const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");

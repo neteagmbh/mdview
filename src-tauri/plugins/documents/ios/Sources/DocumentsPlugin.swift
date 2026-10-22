@@ -20,6 +20,18 @@ private struct OpenOptions: Decodable {
     let url: String
 }
 
+/// Rust-owned staging paths and a bounded copy limit; binary bytes never cross the JSON bridge.
+private struct SnapshotOptions: Decodable {
+    /// Source identity supplied by an existing native grant.
+    let path: String
+    /// Private destination allocated by Rust inside its cache session.
+    let destination: String
+    /// Rust creates this marker when the frontend cancels preparation.
+    let cancellationPath: String
+    /// Independent PDF input-size bound.
+    let maxSize: Int
+}
+
 /// Owns document-picker callbacks and long-lived security-scoped grants.
 @available(iOS 17.0, *)
 final class DocumentsPlugin: Plugin, UIDocumentPickerDelegate {
@@ -78,12 +90,13 @@ final class DocumentsPlugin: Plugin, UIDocumentPickerDelegate {
                                   bookmarkDataIsStale: &stale)
                 if url.startAccessingSecurityScopedResource() {
                     scopes[path] = url
-                    restoredURLs[path] = url
-                    if stale {
-                        bookmarks[path] = try url.bookmarkData(options: .minimalBookmark,
-                                                              includingResourceValuesForKeys: nil,
-                                                              relativeTo: nil)
-                    }
+                }
+                // App-container bookmarks may need no security scope; the bookmark still proves selection.
+                restoredURLs[path] = url
+                if stale {
+                    bookmarks[path] = try url.bookmarkData(options: .minimalBookmark,
+                                                          includingResourceValuesForKeys: nil,
+                                                          relativeTo: nil)
                 }
             } catch {
                 // Keep unavailable provider bookmarks so they can be retried next launch.
@@ -95,7 +108,7 @@ final class DocumentsPlugin: Plugin, UIDocumentPickerDelegate {
             do {
                 try self.retainDocument(url)
             } catch {
-                NSLog("Could not retain incoming Markdown document: %@", error.localizedDescription)
+                NSLog("Could not retain incoming document: %@", error.localizedDescription)
             }
         }) {
             NSLog("Could not install the Tauri document URL access hook")
@@ -131,7 +144,7 @@ final class DocumentsPlugin: Plugin, UIDocumentPickerDelegate {
     @objc public func accept(_ invoke: Invoke) throws {
         let options = try invoke.parseArgs(OpenOptions.self)
         guard let url = URL(string: options.url), url.isFileURL else {
-            invoke.reject("Only local Markdown file URLs can be opened.")
+            invoke.reject("Only local document file URLs can be opened.")
             return
         }
         try retainDocument(restoredURLs[url.path] ?? url)
@@ -151,9 +164,10 @@ final class DocumentsPlugin: Plugin, UIDocumentPickerDelegate {
                 return
             }
             self.pending = invoke
-            // Accept provider documents; Rust validates Markdown extensions after selection.
+            // Advertise Markdown and the system PDF type; Rust validates the actual file content.
+            let markdownTypes = ["md", "markdown", "mdown", "mkd", "mkdn"].compactMap { UTType(filenameExtension: $0) }
             let picker = UIDocumentPickerViewController(
-                forOpeningContentTypes: options.directory ? [.folder] : [.data], asCopy: false)
+                forOpeningContentTypes: options.directory ? [.folder] : markdownTypes + [.pdf], asCopy: false)
             picker.delegate = self
             picker.allowsMultipleSelection = false
             picker.modalPresentationStyle = .fullScreen
@@ -193,6 +207,31 @@ final class DocumentsPlugin: Plugin, UIDocumentPickerDelegate {
                 invoke.resolve(["path": document.path, "content": document.content])
             } catch {
                 invoke.reject("Could not read the provider document: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Resolves file/folder grants before copying provider bytes into a Rust-owned private snapshot.
+    @objc public func snapshot(_ invoke: Invoke) throws {
+        let options = try invoke.parseArgs(SnapshotOptions.self)
+        let source = try DocumentGrants.resolve(options.path, grants: restoredURLs)
+        let destination = URL(fileURLWithPath: options.destination).standardizedFileURL
+        let cancellation = URL(fileURLWithPath: options.cancellationPath).standardizedFileURL
+        let caches = try FileManager.default.url(for: .cachesDirectory, in: .userDomainMask,
+                                                appropriateFor: nil, create: true).resolvingSymlinksInPath()
+        guard destination.deletingLastPathComponent() == cancellation.deletingLastPathComponent(),
+              destination.lastPathComponent == "document.pdf", cancellation.lastPathComponent == "cancelled",
+              destination.deletingLastPathComponent().resolvingSymlinksInPath().path.hasPrefix(caches.path + "/") else {
+            invoke.reject("Invalid private PDF snapshot destination.")
+            return
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let path = try DocumentSnapshots.prepare(source, destination: destination, maxSize: options.maxSize,
+                    isCancelled: { FileManager.default.fileExists(atPath: cancellation.path) })
+                invoke.resolve(["path": path])
+            } catch {
+                invoke.reject("Could not prepare the provider PDF: \(error.localizedDescription)")
             }
         }
     }

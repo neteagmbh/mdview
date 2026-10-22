@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { describe, expect, it, vi } from "vitest";
+import styles from "./styles.css?raw";
 import {
   createRecentTreeNode,
   type MarkdownTreeNode,
@@ -9,6 +10,58 @@ import {
 } from "./recent-tree";
 
 describe("createRecentTreeNode", () => {
+  /** The shared status stylesheet must not override the hidden state once a folder has loaded. */
+  it("hides stale loading/empty status text beside a populated mixed tree", () => {
+    const style = document.createElement("style");
+    style.textContent = styles;
+    const status = document.createElement("p");
+    status.className = "tree-status";
+    status.textContent = "Open a folder to browse its Markdown and PDF files.";
+    document.head.append(style); document.body.append(status);
+    status.hidden = true;
+    expect(getComputedStyle(status).display).toBe("none");
+    status.hidden = false;
+    expect(getComputedStyle(status).display).toBe("block");
+    status.remove(); style.remove();
+  });
+  /** Mixed types retain independent identity, New markers, active state, and collapsed branches on refresh. */
+  it("labels PDF and Markdown files while preserving mixed-tree interaction state", () => {
+    const child = (name: string): MarkdownTreeNode => ({ name, path: `/docs/nested/${name}`,
+      isDirectory: false, isNew: true, pinned: false, children: [] });
+    const node: MarkdownTreeNode = { name: "docs", path: "/docs", isDirectory: true, isNew: false,
+      pinned: true, children: [{ name: "nested", path: "/docs/nested", isDirectory: true,
+        isNew: false, pinned: false, children: [child("Notes.markdown"), child("Reference.PDF")] }] };
+    const actions = { activePath: "/docs/nested/Reference.PDF", folderOpenState: new Map([["/docs/nested", true]]),
+      openFile: vi.fn(), removeFolder: vi.fn(), pinFolder: vi.fn(), copyText: vi.fn() };
+    const tree = createRecentTreeNode(node, actions, true);
+    const pdf = tree.querySelector<HTMLButtonElement>('[data-kind="pdf"]')!;
+    expect(pdf.getAttribute("aria-label")).toBe("Reference.PDF, PDF document, new");
+    expect(pdf.firstElementChild?.classList.contains("document-type-icon")).toBe(true);
+    expect(pdf.querySelector(".document-type-icon text")?.textContent).toBe("PDF");
+    expect(pdf.querySelector(".document-type-icon")?.getAttribute("aria-hidden")).toBe("true");
+    expect(tree.querySelector('[data-kind="markdown"] .document-type-icon text')?.textContent).toBe("MD");
+    expect(pdf.children[1].className).toBe("tree-file-name");
+    expect(tree.querySelectorAll(".tree-file-new-badge")).toHaveLength(2);
+    pdf.click();
+    expect(actions.openFile).toHaveBeenCalledWith("/docs/nested/Reference.PDF");
+    updateRecentTreeActivePath(tree, "/docs/nested/Notes.markdown");
+    expect(pdf.getAttribute("aria-current")).toBe("false");
+    expect(tree.querySelector('[data-kind="markdown"]')?.getAttribute("aria-current")).toBe("page");
+    const nested = tree.querySelector("details")!;
+    nested.open = false; nested.dispatchEvent(new Event("toggle"));
+    const rebuilt = createRecentTreeNode(node, actions, true);
+    expect(rebuilt.querySelector("details")?.open).toBe(false);
+    expect(rebuilt.querySelector(".pin-folder-button")?.getAttribute("aria-pressed")).toBe("true");
+    expect(rebuilt.querySelectorAll(".tree-file-new-badge")).toHaveLength(2);
+  });
+
+  /** Empty-state copy applies to PDF-only and mixed roots as well as Markdown folders. */
+  it("describes both supported formats in an empty root", () => {
+    const tree = createRecentTreeNode({ name: "empty", path: "/empty", isDirectory: true,
+      isNew: false, pinned: false, children: [] }, { activePath: null, folderOpenState: new Map(),
+      openFile: vi.fn(), removeFolder: vi.fn(), pinFolder: vi.fn(), copyText: vi.fn() }, true);
+    expect(tree.querySelector(".tree-empty")?.textContent).toBe("No Markdown or PDF files");
+  });
   /** Verifies that only recent-folder roots expose removal controls. */
   it("adds a remove control only to a top-level recent folder", () => {
     const node: MarkdownTreeNode = {

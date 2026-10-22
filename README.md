@@ -4,12 +4,16 @@ A small desktop Markdown viewer built with Rust, Tauri 2, TypeScript, and Vite.
 
 ## Features
 
-- Native Markdown file picker
+- Native Markdown and PDF file picker
+- PDF.js viewing with continuous pages, selectable text, page navigation, fit modes, zoom, and rotation
+- Password-protected PDF opening with retry and cancellation
+- PDF text search, nested bookmarks, and saved page/offset/zoom/rotation across restart, Back, and reload
 - Drag-and-drop opening
-- OS Open With registration for `.md`, `.markdown`, `.mdown`, `.mkd`, and `.mkdn` (`text/markdown`)
+- OS Open With registration for Markdown (`text/markdown`) and `.pdf` (`application/pdf`)
 - iOS Open In document handoff with provider access retained across relaunches
 - Persistent LRU of recently viewed folders with pinning to exempt folders from eviction
-- Recursive Markdown file tree with refresh support and live updates for new/changed files
+- Recursive Markdown/PDF file tree with refresh support and live updates for new/changed files
+- MD/PDF file icons before tree filenames and the current header filename, alongside existing New, pin, and active-file markers
 - Toggleable document outline with heading navigation
 - Markdown search within the current file, a folder, or all recent folders
 - Printing and PDF export with a repeating filename/date header and page numbers
@@ -22,6 +26,15 @@ A small desktop Markdown viewer built with Rust, Tauri 2, TypeScript, and Vite.
 - Sanitized HTML output
 - Light and dark mode
 - macOS, Windows, and Linux support
+
+PDFs render through the picker, tree, drop, OS handoff, restoration, and relative links.
+PDF printing arrives in step 8. Folder text search remains Markdown-only. PDF annotations and forms
+display read-only appearances. Pages preserve their original colors in both themes.
+See [PDF viewer and lifecycle](doc/pdf-viewer-lifecycle.md) for implementation and validation.
+See [PDF search and reading state](doc/pdf-reading-state.md) for find, bookmarks, Back,
+saved positions, and manual refresh when provider change notifications are unavailable.
+Folder search follows the selected recent-folder root, including when a PDF is opened
+from a nested directory. See [mixed-folder behavior](doc/pdf-mixed-folders.md).
 
 ## Prerequisites
 
@@ -55,6 +68,16 @@ xcrun swift scripts/pdfjs-wk-probe.swift dist /tmp/mdview-pdf-print.pdf
 The Swift command requires macOS and verifies real WebKit rendering and three-page
 native print-to-PDF output. See [PDF.js validation](doc/pdfjs-compatibility.md) for
 development-server, packaged-app, platform, and memory-measurement details.
+
+The same opt-in build includes the production viewer lifecycle probe:
+
+```sh
+MDVIEW_PDF_RENDER_ONLY=1 xcrun swift scripts/pdfjs-wk-probe.swift dist /tmp/mdview-viewer-probe.pdf
+```
+
+It checks six open/render/close cycles, off-screen find, bookmarks, restored reading
+coordinates, shorter replacements, image-only pages, canvas limits, and worker disposal
+on generated PDFs, including a 60-page document with mixed page sizes.
 
 ## Build
 
