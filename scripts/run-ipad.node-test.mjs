@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { join } from "node:path";
 import { runIpadSimulator, selectIpadSimulator } from "./run-ipad.mjs";
 
 /** Creates simulator inventory fixtures with configurable availability and runtime. */
@@ -77,8 +78,8 @@ test("builds and launches the app for Apple Silicon and Intel simulators", () =>
       ["xcode-select", "--print-path"],
       ["npm", "run", "tauri", "--", "ios", "build", "--debug", "--target", target, "--no-sign", "--ci"],
       ["xcrun", "simctl", "bootstatus", "ipad-27", "-b"],
-      ["open", "-a", "/Applications/Xcode Beta.app/Contents/Developer/Applications/Simulator.app", "--args", "-CurrentDeviceUDID", "ipad-27"],
-      ["xcrun", "simctl", "install", "ipad-27", `${calls[0].settings.cwd}src-tauri/gen/apple/build/${folder}/mdview.app`],
+      ["open", "-a", join("/Applications/Xcode Beta.app/Contents/Developer", "Applications/Simulator.app"), "--args", "-CurrentDeviceUDID", "ipad-27"],
+      ["xcrun", "simctl", "install", "ipad-27", join(calls[0].settings.cwd, "src-tauri/gen/apple/build", folder, "mdview.app")],
       ["xcrun", "simctl", "launch", "--terminate-running-process", "ipad-27", "tools.netea.mdview"],
     ]);
     assert.ok(calls.every(({ settings }) => settings.env === options.environment));
@@ -107,7 +108,7 @@ test("opens the selected iPad in Xcode 27 Device Hub", () => {
   const { calls, options } = harness({ exists: (path) => !path.endsWith("Simulator.app") });
   runIpadSimulator(options);
   assert.deepEqual(calls.filter(({ command }) => command === "open").map(({ args }) => args), [
-    ["-a", "/Applications/Xcode Beta.app/Contents/Applications/DeviceHub.app"],
+    ["-a", join("/Applications/Xcode Beta.app/Contents/Developer", "../Applications/DeviceHub.app")],
     ["devices://device/open?id=ipad-27"],
   ]);
 });
@@ -126,6 +127,7 @@ test("opens Simulator from the selected DEVELOPER_DIR", () => {
     runIpadSimulator(options);
     assert.ok(calls.every(({ command }) => command !== "xcode-select"));
     assert.equal(calls.find(({ command }) => command === "open").args[1],
-      "/Applications/Custom Xcode.app/Contents/Developer/Applications/Simulator.app");
+      join(developer.endsWith(".app") ? join(developer, "Contents/Developer") : developer,
+        "Applications/Simulator.app"));
   }
 });

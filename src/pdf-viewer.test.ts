@@ -4,6 +4,9 @@ import { allowedPdfUrl, createPdfViewer, PDF_CANVAS_LIMITS, restrictPdfLinks, ty
 import type { loadPdfjs } from "./pdfjs-runtime";
 import type { PdfResource } from "./documents";
 import type { PDFLinkService } from "pdfjs-dist/types/web/pdf_viewer.component";
+import { printPdf } from "./pdf-print";
+
+vi.mock("./pdf-print", () => ({ printPdf: vi.fn(async () => undefined) }));
 
 /** Implements event/abort semantics so tests exercise readiness rather than mirroring rendering code. */
 class Bus {
@@ -35,7 +38,8 @@ function harness() {
   const pageDiv = document.createElement("div");
   Object.defineProperties(pageDiv, { offsetTop: { value: 500 }, offsetLeft: { value: 20 },
     clientHeight: { value: 1000 }, clientWidth: { value: 800 } });
-  const pageView = { div: pageDiv, pdfPage: null, setPdfPage: vi.fn() };
+  const pageView = { div: pageDiv, pdfPage: null, setPdfPage: vi.fn(),
+    _textHighlighter: { enabled: false, _updateMatches: vi.fn() } };
   const task = { promise: Promise.resolve(pdf), destroy: vi.fn(async () => undefined),
     onPassword: null as null | ((update: (password: string) => void, reason: number) => void) };
   const worker = { port: new EventTarget(), worker: {}, destroy: vi.fn() };
@@ -93,6 +97,20 @@ function harness() {
 }
 
 describe("PDF renderer lifecycle", () => {
+  /** Printing dispatches the original lease and transient password, never on-screen canvases. */
+  it("dispatches complete-source printing and rejects printing after disposal", async () => {
+    const h = harness();
+    const renderer = createPdfViewer(h.options, h.runtime);
+    await renderer.ready;
+    const update = vi.fn();
+    h.task.onPassword?.(update, 2);
+    await vi.waitFor(() => expect(update).toHaveBeenCalledWith("test-password"));
+    expect(renderer.capabilities.print).toBe(true);
+    await renderer.print!();
+    expect(printPdf).toHaveBeenCalledWith(h.options.resource, "test-password");
+    await renderer.destroy();
+    await expect(renderer.print!()).rejects.toMatchObject({ name: "AbortError" });
+  });
   /** A replaced source can shrink while still restoring zoom, orientation, and relative coordinates. */
   it("restores a clamped saved position against actual target-page geometry", async () => {
     const h = harness();

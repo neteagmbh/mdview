@@ -20,6 +20,13 @@ private struct OpenOptions: Decodable {
     let url: String
 }
 
+/// Print input is resolved from an opaque Rust lease, never a frontend-provided source path.
+private struct PdfPrintOptions: Decodable {
+    let path: String
+    let name: String
+    let password: String?
+}
+
 /// Rust-owned staging paths and a bounded copy limit; binary bytes never cross the JSON bridge.
 private struct SnapshotOptions: Decodable {
     /// Source identity supplied by an existing native grant.
@@ -73,6 +80,28 @@ final class DocumentsPlugin: Plugin, UIDocumentPickerDelegate {
                 } else {
                     invoke.resolve()
                 }
+            }
+            self.printer = printer
+            printer.start()
+        }
+    }
+
+    /// Presents the complete original PDF and retains its callback through cancellation.
+    @objc public func printPdf(_ invoke: Invoke) throws {
+        let options = try invoke.parseArgs(PdfPrintOptions.self)
+        let caches = try FileManager.default.url(for: .cachesDirectory, in: .userDomainMask,
+                                                appropriateFor: nil, create: true)
+        let input = try PdfPrintInput.validate(URL(fileURLWithPath: options.path), caches: caches)
+        DispatchQueue.main.async {
+            guard self.printer == nil, let presenter = self.manager.viewController,
+                  presenter.presentedViewController == nil else {
+                invoke.reject("A print dialog is already open or cannot be presented.")
+                return
+            }
+            let printer = DocumentPrinting(pdfURL: input, name: options.name, presenter: presenter) { [weak self] error in
+                self?.printer = nil
+                if let error { invoke.reject("Could not print the PDF: \(error.localizedDescription)") }
+                else { invoke.resolve() }
             }
             self.printer = printer
             printer.start()

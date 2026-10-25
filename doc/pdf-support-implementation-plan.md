@@ -1,7 +1,7 @@
 # PDF.js viewing implementation plan
 
 Date: 17 October 2026.
-Status: steps 1–7 implemented. Step 7 passes the full unit suites, packaged macOS mixed-folder checks, and native WebKit light/dark appearance checks. Linux, physical-device, desktop-baseline, and representative-document memory validation gates remain open; steps 8–9 pending.
+Status: implementation plan closed on 23 October 2026; steps 1–9 implemented. Release approval remains subject to the explicit platform/device, archive, memory and source-distribution gates in the [release verification report](pdf-release-verification.md). Plan closure does not mark untested release checks as passed.
 Background: [PDF feasibility analysis](pdf-support-analysis.md).
 
 ## Confirmed decisions
@@ -13,7 +13,7 @@ Background: [PDF feasibility analysis](pdf-support-analysis.md).
 - Create and discuss the work plan before changing implementation code.
 - The iOS 17 constraint in the earlier analysis is superseded by this decision.
 
-## Proposed first-release scope
+## Implemented first-release scope
 
 - Open PDFs through the native picker, folder tree, drag-and-drop, OS handoff, startup restoration, and relative document links.
 - Display one active Markdown or PDF document within the existing shell.
@@ -27,10 +27,10 @@ Background: [PDF feasibility analysis](pdf-support-analysis.md).
 - Support printing the complete PDF, including pages outside the visible rendering window.
 - Preserve all current Markdown rendering, Mermaid, image, clipboard, search, print, and embedded-license behavior.
 
-Proposed later scope: folder-wide PDF text search, OCR, annotation editing, editable forms, digital-signature verification, thumbnails, arbitrary remote PDF opening, and a separate Save Original command.
-Folder/all-recent-folder search would explicitly remain Markdown-only in the first release.
-PDFs without a text layer would remain viewable but would have no searchable text.
-These scope choices remain proposals until discussed; they are not additional requirements inferred from “viewing.”
+Deferred scope: folder-wide PDF text search, OCR, annotation editing, editable forms, digital-signature verification, thumbnails, arbitrary remote PDF opening, and a separate Save Original command.
+Folder/all-recent-folder search remains Markdown-only. PDFs without a text layer
+remain viewable but have no searchable text. These are the delivered implementation
+boundaries; closing the plan does not imply approval of additional future scope.
 
 ## Architecture
 
@@ -299,6 +299,8 @@ Primary touchpoints: `src/print.ts`, new `pdf-print.ts` if needed, `src-tauri/sr
 Acceptance: a long mixed-page-size PDF prints completely; cancellation and repeated printing work; Markdown print output remains unchanged.
 Tests: print dispatch, complete-page preparation, cleanup/completion, and platform-specific print smoke tests.
 
+Implemented 22 October 2026. The native macOS 61-page mixed-size/rotated print-to-PDF smoke test and production WebKit 61-page preparation probe pass. iOS Swift plugin build and Rust simulator-target checking pass; Windows/Linux dialogs, physical AirPrint, full iOS archive and representative memory checks remain release gates. Encrypted original-PDF AirPrint input fails explicitly. See [complete printing behavior, limits and validation](pdf-printing.md).
+
 ### 9. Finish documentation, licensing, and release verification
 
 Dependencies: steps 1–8.
@@ -328,16 +330,29 @@ Include formatter/lint checks appropriate to changed code and fix introduced dia
 
 Acceptance: all required automated checks pass; platform verification results and any remaining gaps are written down before release.
 
-## Open issues and pending decisions
+Implemented 23 October 2026:
+
+- Updated README format/platform support, all six extensions, iOS 18 minimum, search scope, separate 16 MiB limits, printing routes and explicit limitations.
+- Embedded the full PDF.js/core-js/CMap/font/decoder/ICC notices in the in-app license document and added coverage against the installed notice inventory; recorded native print binding licenses.
+- Added a reproducible production verifier for all 283 pinned offline resources (4,463,193 bytes), including 12 notices; it rejects diagnostic pages, fixture chunks and PDF corpus files in ordinary release output.
+- Documented original MIT fixture generation and the separate, unestablished redistribution rights of the user-supplied diagnostic book; no new third-party corpus was added.
+- Corrected platform-specific expected paths in the simulator script tests behind the earlier Windows aggregate-test failures. A fresh Windows run remains necessary.
+- Full automated suites, TypeScript, production bundling, actual native WebKit probes, Apple metadata evidence and remaining platform/device gates are recorded in the [final release verification report](pdf-release-verification.md).
+- Final available-host results: 221 frontend + 22 script + 56 Rust + 22 Swift tests passed (321 total, zero skips with built metadata inputs); TypeScript, normal Vite output/inventory verification and fresh unsigned macOS app bundling passed. Existing iOS metadata confirms 18.0; no fresh iOS archive or physical-device pass is claimed.
+
+All implementation steps are closed. The following deferred requirements and
+release gates remain tracked outside the completed implementation work package.
+
+## Deferred scope and release gates
 
 | Item | Recommended default / next action | Decision or evidence still needed |
 |---|---|---|
-| Folder-wide PDF search | Ship current-PDF find first; retain clearly labeled Markdown folder search. | Confirm whether PDF text search across folders is required for the initial release. Including it adds extraction, caching, and invalidation work. |
+| Folder-wide PDF search | Current-PDF find implemented; folder search remains clearly labeled Markdown-only. | Deferred feature; extraction, caching and invalidation require a separate work package if requested. |
 | Desktop compatibility floor | Preserve existing targets; test actual runtime engines before selecting final PDF.js build settings. | Specify oldest supported macOS and representative Linux distributions/WebKitGTK versions. Raising iOS does not raise desktop WebKit versions. |
 | PDF file-size limit | Step 3 enforces a separate provisional 16 MiB PDF cap; Markdown stays at 16 MiB. Defer the proposed 64 MiB cap. | Measure peak memory on the oldest supported iPad and representative PDFs before raising/finalizing the cap. File size alone does not bound canvas memory. |
-| Viewer components | Integrate upstream components beneath mdview controls. | Prove the selected release’s component/worker APIs in step 2; document any justified departure before broader integration. |
+| Viewer components | Upstream viewer components run beneath mdview controls with the version-specific selection-geometry highlight adapter. | Runtime and lifecycle evidence recorded; revalidate internal integration on future PDF.js upgrades. |
 | PDF.js version/build runtime | PDF.js 6.4.299 legacy build pinned; CI uses Node 24. | Available Apple and packaged Windows WebView2 probes pass; Linux and oldest-desktop checks remain pending. |
-| Printing | Include complete-document printing in the first release; native PDF input on iOS. | Prove desktop print integration and page fidelity in step 2. Any reduced platform print scope needs an explicit product decision. |
+| Printing | Complete-document printing implemented: original PDF on Apple, full-page raster preparation on Windows/Linux. | Actual Windows/Linux dialogs, physical AirPrint and representative memory/fidelity remain release gates. See the printing and release reports. |
 | Password-protected PDFs | Support password retry/cancel; keep passwords in memory only. | Verify behavior for printing restrictions and encrypted source printing on each target. Show clear unsupported cases rather than promising universal fidelity. |
 | Forms and signatures | Display existing appearance; do not edit forms or claim signature validation. | Confirm if interactive form filling or signature verification is a launch requirement; either expands scope. |
 | Original-PDF saving | Leave a separate Save Original command for later. | Confirm if in-app export/copy is required beyond existing file access and print dialogs. |
@@ -375,4 +390,6 @@ Step 4 connects document entry points, mixed trees, local navigation, and platfo
 Step 5 adds PDF page rendering, controls, passwords, capability dispatch, and renderer/resource disposal.
 Step 6 adds PDF find, bookmarks, bounded reading-state persistence, exact Back destinations, and coalesced position-preserving reloads.
 Step 7 adds mixed-tree type/status/accessibility labels, root-aware Markdown folder search, shell capability transitions, and appearance/focus checks.
+Step 8 adds original-PDF Apple printing and complete-page Windows/Linux print preparation with independent resource ownership and cancellation/cleanup.
+Step 9 closes documentation, offline notices, fixture provenance and available-host verification, with remaining release gates recorded separately.
 Complete-document PDF printing and final release verification remain steps 8–9.

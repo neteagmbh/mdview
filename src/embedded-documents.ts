@@ -1,5 +1,6 @@
 import licenseText from "../LICENSE?raw";
 import thirdPartyLicenses from "../THIRD_PARTY_LICENSES.md?raw";
+import { getPdfjsNotices } from "./pdfjs-notices";
 
 /** Identifies a document bundled with the application. */
 export type EmbeddedDocumentId = "license" | "third-party-licenses";
@@ -17,7 +18,7 @@ const documents: Record<EmbeddedDocumentId, EmbeddedDocument> = {
   },
   "third-party-licenses": {
     title: "Third-party licenses",
-    content: thirdPartyLicenses,
+    content: `${thirdPartyLicenses}\n\n${getPdfjsNotices()}\n`,
   },
 };
 

@@ -15,6 +15,7 @@ use tauri_plugin_dialog::DialogExt;
 mod document_routing;
 mod documents;
 mod incoming_documents;
+mod pdf_printing;
 #[cfg(target_os = "macos")]
 mod printing;
 mod watcher;
@@ -977,6 +978,8 @@ pub fn run() {
             open_markdown_file,
             pick_document,
             print_document,
+            pdf_printing::print_pdf_document,
+            pdf_printing::print_pdf_pages,
             read_markdown_file,
             recent_markdown_tree,
             remove_recent_folder,

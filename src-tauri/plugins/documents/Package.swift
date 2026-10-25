@@ -8,7 +8,7 @@ let package = Package(
     targets: [
         .target(name: "DocumentAccess", path: "ios/Sources",
                 exclude: ["DocumentsPlugin.swift", "DocumentPrinting.swift"],
-                sources: ["DocumentReader.swift", "DocumentSnapshots.swift", "PrintCompletion.swift", "DocumentOpenHook.swift"]),
+                sources: ["DocumentReader.swift", "DocumentSnapshots.swift", "PrintCompletion.swift", "DocumentOpenHook.swift", "PdfPrintInput.swift"]),
         .testTarget(name: "DocumentReaderTests", dependencies: ["DocumentAccess"], path: "tests")
     ]
 )

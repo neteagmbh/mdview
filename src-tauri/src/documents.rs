@@ -242,7 +242,34 @@ pub struct PdfDocuments {
     resources: Mutex<Resources>,
 }
 
+/// Pins an authorized immutable snapshot until a native print operation ends.
+pub(crate) struct PdfPrintSource {
+    /// Shared ownership prevents viewer disposal from deleting the print input.
+    snapshot: Arc<Snapshot>,
+    /// Original filename used for the native print job, without exposing the cache path.
+    pub name: String,
+}
+
+impl PdfPrintSource {
+    /// Returns only the validated private snapshot selected by an opaque lease.
+    pub fn path(&self) -> PathBuf {
+        self.snapshot.path()
+    }
+}
+
 impl PdfDocuments {
+    /// Obtains print ownership atomically with the original display name.
+    pub(crate) fn print_source(&self, handle: &str) -> Result<PdfPrintSource, String> {
+        let resources = self.resources.lock().map_err(|error| error.to_string())?;
+        let lease = resources
+            .leases
+            .get(handle)
+            .ok_or("PDF handle is closed or invalid.")?;
+        Ok(PdfPrintSource {
+            snapshot: lease.snapshot.clone(),
+            name: lease.metadata.name.clone(),
+        })
+    }
     /// Initializes private storage and removes only unlocked abandoned sessions.
     pub fn new(root: &Path) -> Result<Self, String> {
         Ok(Self {

@@ -24,7 +24,8 @@ export default defineConfig({
     sourcemap: Boolean(process.env.TAURI_ENV_DEBUG),
     rollupOptions: {
       input: pdfProbe
-        ? { main: "index.html", pdfProbe: "dev/pdfjs-probe.html", pdfViewerProbe: "dev/pdf-viewer-probe.html" }
+        ? { main: "index.html", pdfProbe: "dev/pdfjs-probe.html", pdfViewerProbe: "dev/pdf-viewer-probe.html",
+          pdfSearchHighlightsProbe: "dev/pdf-search-highlights-probe.html", pdfPrintProbe: "dev/pdf-print-probe.html" }
         : "index.html",
     },
   },

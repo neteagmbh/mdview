@@ -6,6 +6,8 @@ import type { PDFDocumentLoadingTask } from "pdfjs-dist";
 import { createPdfSearch, type FileFindAdapter } from "./pdf-search";
 import { pdfBookmarks, type PdfBookmark } from "./pdf-outline";
 import { normalizePdfPosition, type PdfPosition } from "./pdf-position";
+import { installPdfSearchHighlights } from "./pdf-search-highlights";
+import { printPdf } from "./pdf-print";
 
 /** Limits each base/detail canvas; PDF.js retains a viewport-sized page cache and renders serially. */
 export const PDF_CANVAS_LIMITS = { maxCanvasPixels: 2_097_152, maxCanvasDim: 4096 };
@@ -106,6 +108,7 @@ export function createPdfViewer(options: PdfViewerOptions,
   let worker: Awaited<ReturnType<Awaited<ReturnType<typeof loadPdfjs>>["createPdfWorker"]>> | undefined;
   let disposed: Promise<void> | undefined;
   let loaded = false;
+  let printPassword: string | undefined;
   let restoring = true;
   let find: FileFindAdapter | undefined;
   let mode: PdfScaleMode = "page-width";
@@ -147,6 +150,7 @@ export function createPdfViewer(options: PdfViewerOptions,
   }
   /** Idempotently stops canvas work and observers before terminating the native worker. */
   function destroy(): Promise<void> {
+    printPassword = undefined;
     lifetime.abort();
     options.signal.removeEventListener("abort", abort);
     disposed ??= (async () => {
@@ -198,7 +202,7 @@ export function createPdfViewer(options: PdfViewerOptions,
           .then(password => {
             if (signal.aborted) return;
             if (password === null) { lifetime.abort(); void destroy().catch(() => undefined); }
-            else updatePassword(password);
+            else { printPassword = password; updatePassword(password); }
           }).catch(error => { options.failed(error); void destroy().catch(() => undefined); });
       };
       const pdf = bundle.preparePdfDocument(await Promise.race([task.promise, failure]));
@@ -218,6 +222,7 @@ export function createPdfViewer(options: PdfViewerOptions,
         enableAutoLinking: false, imageResourcesPath: `${bundle.resourceBase}images/`,
         minDurationToUpdateCanvas: 0, abortSignal: signal };
       viewer = new components.PDFViewer(viewerOptions);
+      installPdfSearchHighlights(bus, viewer, signal);
       links.setViewer(viewer);
       links.setDocument(pdf);
       const initial = options.page ? null : normalizePdfPosition(options.position, pdf.numPages);
@@ -301,7 +306,8 @@ export function createPdfViewer(options: PdfViewerOptions,
   }
   const ready = initialize();
   return {
-    kind: "pdf", capabilities: { print: false, find: true, outline: true }, ready, destroy, position,
+    kind: "pdf", capabilities: { print: true, find: true, outline: true }, ready, destroy, position,
+    async print() { await ready; check(); await printPdf(options.resource, printPassword); },
     find: { search: (query, changed) => find?.search(query, changed), move: previous => find?.move(previous), clear: () => find?.clear() },
     goToPage(page) {
       if (viewer && Number.isInteger(page) && page >= 1 && page <= viewer.pagesCount) {

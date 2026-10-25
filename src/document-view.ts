@@ -1,6 +1,6 @@
 /** Shell capabilities advertised by the active document renderer. */
 export interface RendererCapabilities {
-  /** Whether the existing Markdown print path can print this renderer. */
+  /** Whether the renderer's complete-document print path is available. */
   print: boolean;
   /** Whether the current-file search adapter is available. */
   find: boolean;
@@ -18,6 +18,8 @@ export interface DocumentRenderer {
   ready: Promise<void>;
   /** Applies a relative zoom step or resets the scale. */
   zoom: (direction: -1 | 0 | 1) => void;
+  /** Prints the complete source through a renderer-specific path, when provided. */
+  print?: () => Promise<void>;
   /** Cancels tasks and frees workers, listeners, canvases, and native ownership dependencies. */
   destroy: () => Promise<void>;
 }

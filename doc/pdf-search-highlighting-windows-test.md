@@ -4,13 +4,17 @@ issue_id: pdf-search-highlight-geometry
 created: 2026-10-22
 target_platform: Windows
 target_engine: Microsoft Edge WebView2
-execution_status: not_run_on_windows
+execution_status: windows_reproduction_reported_by_user
+independent_windows_execution: not_run
+windows_evidence_received: 2026-10-22
 scope: reproduce_and_diagnose
 production_fix_implemented: false
 fixture: testdata/10.1515_9783111059228.pdf
 fixture_sha256: 988f95f8233872f72f735940929a57ba1d9d91bb6c21cb2ce88bddbcaf0bca07
 physical_page_1_based: 269
 printed_page_label: "257"
+additional_physical_pages: [297]
+additional_printed_page_labels: ["285"]
 query: Koordinaten
 pdfjs_baseline_version: 6.4.299
 ---
@@ -44,6 +48,8 @@ Keep evidence outside the source tree. Do not install this diagnostic build over
 | Page landmarks | Section 5.1.1; definitions 5.1, 5.2, 5.3; equations (5.4), (5.5) |
 
 Symptoms reported on macOS: highlight rectangles appear below or horizontally displaced from matching letters; some matches extend into adjacent mathematical accents. The offset is not reliably described by a single translation.
+
+The user subsequently supplied Windows screenshots reproducing displacement on physical page **297**, printed page **285**. See section 4.1 for the preserved evidence and its limits. Windows reproduction is now reported; the controlled Windows procedure below has not been independently executed by this agent.
 
 Inspect at least these segments on physical page 269:
 
@@ -106,6 +112,27 @@ Earlier exploratory estimates of approximately 10 pixels left/right displacement
 No production highlighting fix or PDF.js upgrade has been applied. Temporary user-PDF endpoints, comparison harness branches, and loopback servers used on macOS were removed. In particular, `__probe-input.pdf`, `__probe-results`, and user-PDF query parameters are **not existing repository features**. The Swift WebKit harness is macOS-only.
 
 The existing generated-font probe previously passed on Windows WebView2. That establishes basic rendering/search compatibility, not correctness for this book's highlights.
+
+### 4.1. Windows reproduction supplied by the user
+
+Evidence received on 22 October 2026. The screenshots are preserved without editing:
+
+- [Definition 5.25 / Rotation screenshot](../testdata/pdf-highlighting-windows/definition-5-25-rotation.png)
+- [Definition 5.26 / Laplace and example 5.9 screenshot](../testdata/pdf-highlighting-windows/definition-5-26-laplace.png)
+
+Both crops' landmarks occur on physical page **297**, whose PDF page label is **285**, in the checksum-verified fixture. This mapping was verified with PDF.js text extraction and `getPageLabels()`; it does not depend on estimating the page from a screenshot.
+
+Observed in the supplied crops:
+
+- Purple rectangles extend below visible text and have varying horizontal overlap with the matching letters.
+- The first crop includes a normal `Koordinaten` match, a hyphenated `Koordi-` / `naten` match, and definition 5.25.
+- The second crop includes ordinary, compound-word, and bold matches around definition 5.26 and example 5.9. The displacement is not confined to separate combining accents.
+
+The user identifies these as Windows results. The crops do not provide the app build, PDF.js version, WebView2 Runtime version, Windows build, zoom, or display scaling. Keep those fields unknown until collected; do not reuse macOS metadata or historical Windows smoke-test versions.
+
+**Updated assessment:** a WebKit-only explanation is insufficient. Shared text-run-to-character geometry, fallback-font behavior, application CSS, and integration remain candidates. The screenshots do not distinguish an upstream PDF.js issue from application configuration. WebKit's separately measured accent-box differences may aggravate the macOS result without explaining the entire cross-platform issue.
+
+Do not mark the issue fixed, or restrict the investigation to WebKit accent handling. Use pages 269 and 297 as regression cases and collect matched Windows/browser measurements before choosing a fix.
 
 ## 5. Windows preparation
 
@@ -180,6 +207,7 @@ The path assumes the repository's default Cargo target directory. If `CARGO_TARG
 | W03 | Rotate 90, 180, 270 degrees, then restore 0 | Whether boxes stay on matching glyphs; store rotation with every sample |
 | W04 | Next hit, previous hit, clear query, re-enter query; scroll away and return | Selected styling, stale boxes, accents, off-screen page rerender |
 | W05 | Reopen the PDF and repeat; test another available display/DPI setup if practical | Initial versus warmed font/layout state; persistence and DPI sensitivity |
+| W08 | Repeat W01 on physical page 297, printed label 285; inspect definitions 5.25/5.26 and example 5.9 at multiple zooms | User-reported Windows case: normal, hyphenated, compound-word, and bold matches; compare with the preserved screenshots |
 
 Mark unavailable variations `not_run`. Keep theme, display, window size, and scope fixed within each comparison. If testing light/dark appearance, record it as a separate case and confirm PDF page colors remain unchanged.
 
@@ -203,7 +231,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Release build failed.' }
 & '.\src-tauri\target\release\mdview.exe'
 ```
 
-Repeat W01 visually and at one additional zoom. Release DevTools may be unavailable; use debug geometry plus release screenshots and identify their different build modes. Do not change production feature flags merely to obtain a console.
+Repeat W01 and W08 visually and at one additional zoom. Release DevTools may be unavailable; use debug geometry plus release screenshots and identify their different build modes. Do not change production feature flags merely to obtain a console.
 
 ## 7. Browser comparisons and interpretation
 
@@ -212,6 +240,8 @@ Repeat W01 visually and at one additional zoom. Release DevTools may be unavaila
 Open the same local fixture in Firefox on Windows. Match query options, page, PDF zoom, browser zoom, and visible content area as closely as possible. Navigate by printed label **257** and verify physical page **269/352**.
 
 Record Firefox's version and the **bundled PDF.js version**, not just the browser version. The PDF load log in the Web Console contains a `PDF.js: ...` version/build entry; `globalThis.pdfjsLib?.version` is another read-only check when exposed. Run the section 8 collector in the PDF document's context, not the DevTools document.
+
+Also compare W08: enter printed label **285** in Firefox and verify physical page **297/352**.
 
 This is a product comparison with possible PDF.js/configuration differences. It is not an engine-only experiment.
 
@@ -235,13 +265,13 @@ On Windows, PDF.js has Firefox-specific fallback-family selection (`Calibri` for
 
 ## 8. Read-only DOM geometry collector
 
-In a debug app, open DevTools using Ctrl+Shift+I or the WebView's Inspect command when available. Use the following code in the PDF document console. It reads current DOM geometry; it does **not** supply glyph ground truth or fix highlighting. Use DevTools' copy-value/string-content action to save the complete returned JSON, rather than copying a truncated visual preview.
+In a debug app, open DevTools using Ctrl+Shift+I or the WebView's Inspect command when available. Use the following code in the PDF document console. Set `pageNumber` to **297** for W08, or **269** for the original case. It reads current DOM geometry; it does **not** supply glyph ground truth or fix highlighting. Use DevTools' copy-value/string-content action to save the complete returned JSON, rather than copying a truncated visual preview.
 
 ```javascript
 (() => {
-  const pageNumber = 269;
+  const pageNumber = 269; // Use 297 for the Windows screenshots / W08.
   const page = document.querySelector(`.page[data-page-number="${pageNumber}"]`);
-  if (!page) throw new Error("Physical page 269 is not mounted; navigate there first.");
+  if (!page) throw new Error(`Physical page ${pageNumber} is not mounted; navigate there first.`);
   const origin = page.getBoundingClientRect();
   const rect = element => {
     const r = element.getBoundingClientRect();
@@ -333,11 +363,11 @@ firefox_bundled_pdfjs_version: null
 edge_version: null
 display_scale_percent: null
 remote_desktop: null
-physical_page: 269
-printed_label: "257"
+physical_pages: [269, 297]
+printed_labels: ["257", "285"]
 query: Koordinaten
 production_source_changed: false
-cases: [] # id, build_mode, engine, origin, scale, rotation, DPR, outcome, evidence_paths
+cases: [] # id, physical_page, build_mode, engine, origin, scale, rotation, DPR, outcome, evidence_paths
 ```
 
 For every case record selected/current/total match state, relevant highlight segments, visual symptoms, geometry filename, screenshot filenames, and errors. Include skipped cases with reasons. Separate observations, hypotheses, and confirmed causes. State whether a small WebView2/CSS correction is evidenced, whether further controlled comparison is needed, or whether precise glyph geometry needs investigation. Do not claim an upgrade or overlay fixes the issue without rerunning the failing cases.

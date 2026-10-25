@@ -26,7 +26,9 @@ describe("sidebar toggle", () => {
 
     initializeSidebarVisibility(setOpen, setOutlineOpen, { matchMedia });
 
-    expect(matchMedia).toHaveBeenCalledWith("(max-width: 1100px)");
+    expect(matchMedia).toHaveBeenCalledWith(
+      "(max-width: 900px), (max-width: 1100px) and (orientation: portrait)",
+    );
     expect(sidebar.hidden).toBe(narrow);
     expect(toggle.getAttribute("aria-expanded")).toBe(String(!narrow));
     expect(setOutlineOpen).toHaveBeenCalledWith(!narrow);

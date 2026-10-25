@@ -4,7 +4,11 @@ import WebKit
 /// Owns the AirPrint presentation and keeps its source webview alive until completion.
 final class DocumentPrinting: NSObject, UIPrintInteractionControllerDelegate {
     /// Source document; CSS applies print-only colors and diagram images during pagination.
-    private let webView: WKWebView
+    private let webView: WKWebView?
+    /// Immutable original PDF input; Rust retains its private snapshot until completion.
+    private let pdfURL: URL?
+    /// Original source filename, without Markdown's repeated page decorations.
+    private let jobName: String
     /// Presents within the scene containing the document being printed.
     private weak var presenter: UIViewController?
     /// Resolves the plugin request once even if presentation and completion both fail.
@@ -13,6 +17,18 @@ final class DocumentPrinting: NSObject, UIPrintInteractionControllerDelegate {
     /// Retains the document and its callback for the lifetime of the print dialog.
     init(webView: WKWebView, presenter: UIViewController, completion: @escaping (Error?) -> Void) {
         self.webView = webView
+        self.pdfURL = nil
+        self.jobName = webView.title ?? "mdview"
+        self.presenter = presenter
+        self.completion = PrintCompletion(completion)
+        super.init()
+    }
+
+    /// Uses UIKit's original-PDF print path rather than the virtualized webview formatter.
+    init(pdfURL: URL, name: String, presenter: UIViewController, completion: @escaping (Error?) -> Void) {
+        self.webView = nil
+        self.pdfURL = pdfURL
+        self.jobName = name
         self.presenter = presenter
         self.completion = PrintCompletion(completion)
         super.init()
@@ -27,16 +43,28 @@ final class DocumentPrinting: NSObject, UIPrintInteractionControllerDelegate {
         }
         let controller = UIPrintInteractionController.shared
         let info = UIPrintInfo(dictionary: nil)
-        info.jobName = webView.title ?? "mdview"
+        info.jobName = jobName
         info.outputType = .general
         controller.printInfo = info
         controller.delegate = self
-        let formatter = webView.viewPrintFormatter()
-        let pointsPerMillimetre = 72.0 / 25.4
-        formatter.perPageContentInsets = UIEdgeInsets(
-            top: 26 * pointsPerMillimetre, left: 18 * pointsPerMillimetre,
-            bottom: 20 * pointsPerMillimetre, right: 18 * pointsPerMillimetre)
-        controller.printFormatter = formatter
+        if let pdfURL {
+            guard UIPrintInteractionController.canPrint(pdfURL) else {
+                finish(NSError(domain: "mdview.printing", code: 3,
+                    userInfo: [NSLocalizedDescriptionKey: "The original PDF cannot be printed by AirPrint."]))
+                return
+            }
+            controller.printFormatter = nil
+            controller.printingItem = pdfURL
+            controller.showsPageRange = true
+        } else if let webView {
+            let formatter = webView.viewPrintFormatter()
+            let pointsPerMillimetre = 72.0 / 25.4
+            formatter.perPageContentInsets = UIEdgeInsets(
+                top: 26 * pointsPerMillimetre, left: 18 * pointsPerMillimetre,
+                bottom: 20 * pointsPerMillimetre, right: 18 * pointsPerMillimetre)
+            controller.printingItem = nil
+            controller.printFormatter = formatter
+        }
         let callback: UIPrintInteractionController.CompletionHandler = { [weak self] _, _, error in
             self?.finish(error)
         }
@@ -67,7 +95,8 @@ final class DocumentPrinting: NSObject, UIPrintInteractionControllerDelegate {
         let controller = UIPrintInteractionController.shared
         controller.delegate = nil
         controller.printFormatter = nil
-        webView.evaluateJavaScript("window.dispatchEvent(new Event('afterprint'))", completionHandler: nil)
+        controller.printingItem = nil
+        webView?.evaluateJavaScript("window.dispatchEvent(new Event('afterprint'))", completionHandler: nil)
         completion.finish(error)
     }
 }

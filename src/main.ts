@@ -26,6 +26,7 @@ import { createDocumentOpening, pdfPage, type OpenedContent } from "./document-o
 import { createDocumentView, type RendererCapabilities } from "./document-view";
 import { createPdfViewer, type PdfRenderer, type PdfViewerState } from "./pdf-viewer";
 import { requestPdfPassword } from "./pdf-password";
+import { isPdfPrinting } from "./pdf-print";
 import type { PdfResource } from "./documents";
 import { rememberPdfPosition, type PdfPosition } from "./pdf-position";
 import { renderPdfBookmarks, type PdfBookmark } from "./pdf-outline";
@@ -610,7 +611,7 @@ async function displayOpenedDocument(document: OpenedContent, fragment: string |
     documentStatus.hidden = true;
     documentReady = true;
     updatePdfControls(pdfState);
-    setRendererCapabilities({ print: false, find: true, outline: true });
+    setRendererCapabilities({ print: true, find: true, outline: true });
     searchController.refreshHighlights();
   }
   if (!isCurrent()) return;
@@ -700,6 +701,10 @@ async function initializeViewState(): Promise<void> {
     console.error("Could not restore view state", restoreError);
   }
 
+  // Measure the restored viewport after WebKit has applied the native window size.
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  initializeSidebarVisibility(setSidebarOpen, setOutlineOpen);
+
   try {
     viewState = { ...viewState, window: await currentWindowGeometry() };
     await appWindow.onResized(({ payload }) => {
@@ -776,6 +781,16 @@ async function chooseFile(): Promise<void> {
 /** Opens native desktop/mobile printing or the browser fallback on unsupported platforms. */
 function printDocument(): void {
   if (!documentReady || !documentView.current?.capabilities.print) return;
+  if (documentView.current.kind === "pdf") {
+    documentStatus.hidden = true;
+    void documentView.current.print?.().catch(printError => {
+      const message = `Could not print PDF: ${printError instanceof Error ? printError.message : String(printError)}`;
+      if (activeKind === "pdf") { documentStatus.textContent = message; documentStatus.hidden = false; }
+      else { error.textContent = message; error.hidden = false; }
+    });
+    return;
+  }
+  if (isPdfPrinting()) return;
   void openPrintDialog(
     () => printWithNativeMargins(() => invoke<boolean>("print_document")),
     () => window.print(),
@@ -825,7 +840,6 @@ async function searchFiles(query: string, scope: SearchScope): Promise<FileSearc
 }
 
 const setSidebarOpen = attachSidebarToggle(appShell, sidebar, sidebarToggle);
-initializeSidebarVisibility(setSidebarOpen, setOutlineOpen);
 const sidebarTabs = createSidebarTabs(
   {
     folders: { tab: foldersTab, panel: foldersPanel },
@@ -875,7 +889,7 @@ document.addEventListener("keydown", (event) => {
 let restorePrintDocument: (() => void) | null = null;
 /** Prepares print assets once, before the native dialog can measure the document. */
 function preparePrintDocument(): void {
-  if (!documentView.current?.capabilities.print) return;
+  if (isPdfPrinting() || documentView.current?.kind !== "markdown" || !documentView.current.capabilities.print) return;
   restorePrintDocument ??= prepareLightModePrint(markdown);
 }
 window.addEventListener("beforeprint", preparePrintDocument);

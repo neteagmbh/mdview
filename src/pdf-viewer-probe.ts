@@ -96,10 +96,14 @@ async function run(): Promise<void> {
       await until(() => match.current === 2, "next PDF match");
       renderer.find.move(true);
       await until(() => match.current === 1, "previous PDF match");
+      await until(() => Boolean(pages.querySelector('.pdf-search-highlight.is-selected')), "Range-based search highlight");
+      if (pages.querySelector('.textLayer .highlight')) throw new Error("Search mutated the selectable text layer.");
+      report.rangeSearchHighlights = true;
       report.findMatches = match.total;
       renderer.find.search("absent-text-unique", next => { match = next; });
       await until(() => !match.pending && match.total === 0, "no PDF matches");
       renderer.find.clear();
+      await until(() => !pages.querySelector('.pdf-search-highlight'), "cleared search overlays");
     }
     renderer.goToPage(40);
     await until(() => Boolean(pages.querySelector('[data-page-number="40"] canvas')), "distant-page render");

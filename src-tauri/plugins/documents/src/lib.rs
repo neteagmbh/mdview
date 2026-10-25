@@ -49,6 +49,13 @@ impl<R: Runtime> Documents<R> {
             .map_err(|error| error.to_string())
     }
 
+    /// Prints an authorized private original PDF and waits for AirPrint completion/cancellation.
+    pub fn print_pdf(&self, path: &str, name: &str, password: Option<&str>) -> Result<(), String> {
+        self.0.run_mobile_plugin("printPdf", serde_json::json!({
+            "path": path, "name": name, "password": password
+        })).map_err(|error| error.to_string())
+    }
+
     /// Presents Apple's Files picker for a single file or directory.
     pub fn pick(&self, directory: bool) -> Result<Selection, String> {
         self.0

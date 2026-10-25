@@ -8,6 +8,24 @@ use std::{
 /// Original binary sample includes bytes that cannot be decoded as UTF-8.
 const PDF: &[u8] = b"%PDF-1.7\n\xff\xfe\n%%EOF\n";
 
+/// Native printing pins the snapshot after the viewer closes and rejects released handles.
+#[test]
+fn print_source_owns_snapshot_until_completion() {
+    let root = tempfile::tempdir().unwrap();
+    let store = PdfDocuments::new(&root.path().join("cache")).unwrap();
+    let path = root.path().join("Original print.pdf");
+    fs::write(&path, PDF).unwrap();
+    let prepared = prepare(&store, &path, "print-source");
+    let source = store.print_source(&prepared.handle).unwrap();
+    let snapshot = source.path();
+    assert_eq!(source.name, "Original print.pdf");
+    store.release(&prepared.handle).unwrap();
+    assert!(store.print_source(&prepared.handle).is_err());
+    assert_eq!(fs::read(&snapshot).unwrap(), PDF);
+    drop(source);
+    assert!(!snapshot.exists());
+}
+
 /// Creates a prepared snapshot using the same copy and publish path as desktop commands.
 fn prepare(store: &PdfDocuments, path: &Path, token: &str) -> PreparedPdf {
     store.grant_file(path).unwrap();

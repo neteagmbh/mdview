@@ -1,10 +1,12 @@
-/** Starts with more reading space on phones, portrait tablets, and small windows. */
+/** Collapses the initial sidebars only where the compact or portrait layout needs reading space. */
 export function initializeSidebarVisibility(
   setSidebarOpen: (open: boolean) => void,
   setOutlineOpen: (open: boolean) => void,
   viewport: Pick<Window, "matchMedia"> = window,
 ): void {
-  const open = !viewport.matchMedia("(max-width: 1100px)").matches;
+  const open = !viewport.matchMedia(
+    "(max-width: 900px), (max-width: 1100px) and (orientation: portrait)",
+  ).matches;
   setSidebarOpen(open);
   setOutlineOpen(open);
 }

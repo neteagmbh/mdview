@@ -24,7 +24,10 @@ Upstream source links provide the applicable license and copyright notices.
 
 PDF.js resource licenses are bundled under `pdfjs/6.4.299/`: the PDF.js `LICENSE`,
 the scoped polyfill's `CORE_JS_LICENSE`, Foxit and Liberation font notices in `standard_fonts/`, decoder notices in `wasm/`,
-and the ICC profile notice in `iccs/`. The optional QuickJS scripting sandbox is
+Adobe CMap notices in `cmaps/`, and the ICC profile notice in `iccs/`.
+The in-app **Third-party licenses** view embeds the full text of these notices,
+including OpenJPEG, JBIG2, QCMS and the corresponding PDF.js decoder bindings.
+The optional QuickJS scripting sandbox is
 excluded. The compatibility fixture is original mdview test content.
 
 ## Rust runtime and build libraries
@@ -38,6 +41,10 @@ excluded. The compatibility fixture is original mdview test content.
 | `tauri-build` | 2.7.0 | Apache-2.0 OR MIT | [tauri-apps/tauri](https://github.com/tauri-apps/tauri) |
 | `tauri-plugin-dialog` | 2.7.2 | Apache-2.0 OR MIT | [tauri-apps/plugins-workspace](https://github.com/tauri-apps/plugins-workspace) |
 | `tauri-plugin-opener` | 2.5.4 | Apache-2.0 OR MIT | [tauri-apps/plugins-workspace](https://github.com/tauri-apps/plugins-workspace) |
+| `objc2` | 0.6.4 | MIT | [madsmtm/objc2](https://github.com/madsmtm/objc2) |
+| `objc2-pdf-kit`, `objc2-app-kit`, `objc2-foundation`, `objc2-web-kit` | 0.3.2 | MIT | [madsmtm/objc2](https://github.com/madsmtm/objc2) |
+| `webview2-com` | 0.39.1 | MIT | [wravery/webview2-rs](https://github.com/wravery/webview2-rs) |
+| `windows` | 0.61.3 | MIT OR Apache-2.0 | [microsoft/windows-rs](https://github.com/microsoft/windows-rs) |
 
 ## Development-only libraries
 

@@ -17,6 +17,7 @@ test("PDF assets come from the pinned release and retain distribution notices", 
     assert.ok([...assets.keys()].some((name) => name.startsWith(prefix + family)));
   }
   assert.ok(assets.has(prefix + "LICENSE"));
+  assert.ok(assets.has(prefix + "CORE_JS_LICENSE"));
   assert.ok(assets.has(prefix + "standard_fonts/LICENSE_FOXIT"));
   assert.ok(assets.has(prefix + "wasm/LICENSE_OPENJPEG"));
   assert.ok(assets.has(prefix + "iccs/LICENSE"));

@@ -1,6 +1,6 @@
 # mdview
 
-A small desktop Markdown viewer built with Rust, Tauri 2, TypeScript, and Vite.
+A small Markdown and PDF viewer for macOS, Windows, Linux, and iPadOS, built with Rust, Tauri 2, TypeScript, and Vite.
 
 ## Features
 
@@ -16,7 +16,8 @@ A small desktop Markdown viewer built with Rust, Tauri 2, TypeScript, and Vite.
 - MD/PDF file icons before tree filenames and the current header filename, alongside existing New, pin, and active-file markers
 - Toggleable document outline with heading navigation
 - Markdown search within the current file, a folder, or all recent folders
-- Printing and PDF export with a repeating filename/date header and page numbers
+- Markdown printing and PDF export with a repeating filename/date header and page numbers
+- Complete-document PDF printing, including pages outside the visible viewer cache
 - Syntax highlighting for fenced code blocks
 - Mermaid diagram rendering
 - Session document zoom controls
@@ -28,13 +29,37 @@ A small desktop Markdown viewer built with Rust, Tauri 2, TypeScript, and Vite.
 - macOS, Windows, and Linux support
 
 PDFs render through the picker, tree, drop, OS handoff, restoration, and relative links.
-PDF printing arrives in step 8. Folder text search remains Markdown-only. PDF annotations and forms
+Folder text search remains Markdown-only. PDF annotations and forms
 display read-only appearances. Pages preserve their original colors in both themes.
 See [PDF viewer and lifecycle](doc/pdf-viewer-lifecycle.md) for implementation and validation.
 See [PDF search and reading state](doc/pdf-reading-state.md) for find, bookmarks, Back,
 saved positions, and manual refresh when provider change notifications are unavailable.
 Folder search follows the selected recent-folder root, including when a PDF is opened
 from a nested directory. See [mixed-folder behavior](doc/pdf-mixed-folders.md).
+
+### Supported documents and PDF limits
+
+Supported extensions are `.md`, `.markdown`, `.mdown`, `.mkd`, `.mkdn`, and `.pdf` (case-insensitive).
+Markdown and PDF inputs each have a 16 MiB limit. The PDF limit is provisional;
+compressed file size does not bound decoded image or process memory.
+
+PDF find searches the current document, including pages outside the visible area.
+Image-only scans require an existing text layer for find/copy; mdview does not perform OCR.
+PDF forms and annotations display existing appearances without editing. Embedded
+scripting and launch actions are disabled; digital signatures are not verified.
+Incoming remote PDF URLs and folder-wide PDF text search are unsupported.
+
+PDF printing uses the original PDF through PDFKit on macOS and AirPrint on iPadOS.
+Windows/Linux prepare all pages as raster images, losing searchable text/vector
+output. Saving from a print dialog creates a new PDF, not a copy of the original.
+Encrypted PDF printing is unsupported on iPadOS, even when viewing succeeds.
+Raster preparation is capped at 128 MiB of compressed page images and can be cancelled.
+See [printing behavior and limits](doc/pdf-printing.md).
+
+Implementation is complete; platform/device release verification remains tracked in
+the [PDF release report](doc/pdf-release-verification.md). Linux runtime/printing,
+physical iPad provider/AirPrint, oldest-engine compatibility and representative
+memory measurements still require verification before a release is approved.
 
 ## Prerequisites
 
@@ -94,7 +119,7 @@ iOS app to expose mdview in the OS document-opening menus. Incoming files open i
 the current viewer, including when they launch the app; an incoming startup file
 takes precedence over the last session's document. When several files arrive
 together, mdview opens the first and reports the additional files. Apple declares
-mdview as an alternate viewer for Markdown. A dedicated Share/Action extension is
+mdview as an alternate viewer for Markdown and PDF. A dedicated Share/Action extension is
 a separate feature.
 
 ### Signed and notarized macOS build
@@ -215,13 +240,14 @@ Installed Apps → +** instead.
 
 **Open file** and **Open folder** use Apple's Files picker on iPad, including
 iCloud Drive and other document providers. Select a folder to authorize browsing
-its Markdown tree; selecting a single file grants access to that file only.
+its Markdown/PDF tree; selecting a single file grants access to that file only.
 The app retains bookmarks to reopen selected documents and folders after a restart.
 Cloud-only documents are downloaded by the provider when opened.
 
-**Print** opens the native AirPrint dialog on iPad. Printing uses light colors
+**Print** opens the native AirPrint dialog on iPad. Markdown printing uses light colors
 and light Mermaid images while the document on screen keeps its current theme.
 Closing or cancelling the dialog restores the temporary print resources.
+PDF printing uses the original snapshot and preserves its original page colors.
 
 Run the native document-reader and print-completion unit tests on macOS with:
 

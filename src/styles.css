@@ -143,7 +143,8 @@ button:focus-visible {
   grid-template-columns: minmax(0, 1fr);
 }
 
-.sidebar {
+/* Avoid PDF.js's global .sidebar sizing and positioning rules. */
+.app-sidebar {
   position: sticky;
   top: var(--toolbar-height);
   overflow: auto;
@@ -1092,7 +1093,7 @@ mark.search-hit-current {
   button,
   .toolbar,
   .document-navigation,
-  .sidebar,
+  .app-sidebar,
   .outline-sidebar,
   .welcome,
   .error,
@@ -1334,7 +1335,7 @@ mark.search-hit-current {
   .toolbar,
   .search-bar,
   .search-results,
-  .sidebar,
+  .app-sidebar,
   .outline-sidebar,
   .drop-overlay,
   .image-popout,
