@@ -6,7 +6,7 @@ import { attachSidebarToggle, initializeSidebarVisibility } from "./sidebar-togg
 /** Creates a sidebar with retained width and content, plus its header button. */
 function fixture() {
   document.body.innerHTML = `<button id="toggle"></button>
-    <div id="shell" style="--sidebar-width: 310px">
+    <div id="shell" style="--mdview-sidebar-width: 310px">
       <aside id="sidebar"><button aria-selected="true">Folders</button></aside>
     </div>`;
   const shell = document.querySelector<HTMLElement>("#shell")!;
@@ -55,7 +55,7 @@ describe("sidebar toggle", () => {
     expect(sidebar.hidden).toBe(false);
     expect(shell.classList.contains("sidebar-closed")).toBe(false);
     expect(shell.classList.contains("outline-closed")).toBe(true);
-    expect(shell.style.getPropertyValue("--sidebar-width")).toBe("310px");
+    expect(shell.style.getPropertyValue("--mdview-sidebar-width")).toBe("310px");
     expect(sidebar.firstElementChild).toBe(child);
     expect(child?.getAttribute("aria-selected")).toBe("true");
     expect(toggle.getAttribute("aria-expanded")).toBe("true");

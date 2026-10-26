@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
 import { expect, it } from "vitest";
 import html from "../index.html?raw";
-import styles from "./styles.css?raw";
+import { readFileSync } from "node:fs";
+
+// Vitest stubs CSS imports, including ?raw; read actual rules for regression coverage.
+const styles = readFileSync("src/styles.css", "utf8");
 
 /** PDF.js's generic sidebar rules must not constrain the application's grid item. */
 it("isolates the resizable file tree from PDF.js sidebar styles", () => {
@@ -23,3 +26,15 @@ it("isolates the resizable file tree from PDF.js sidebar styles", () => {
     style.remove();
   }
 });
+
+/** Wide-layout bookmark columns must use app-owned widths, not PDF.js's inherited 2px stroke. */
+it.each([".app-shell", ".app-shell.sidebar-closed"])(
+  "isolates the bookmark column width from PDF.js in %s", (selector) => {
+    // Check the initial screen rule; jsdom does not compute responsive grid geometry.
+    const start = styles.indexOf(`${selector} {`);
+    expect(start).toBeGreaterThanOrEqual(0);
+    const rule = styles.slice(start).split("}")[0];
+    expect(rule).toContain("var(--mdview-outline-width, 240px)");
+    expect(styles).not.toMatch(/var\(--(?:outline|sidebar)-width\b/);
+  },
+);

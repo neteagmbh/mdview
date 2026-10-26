@@ -51,3 +51,22 @@ Remaining release validation includes physical iOS/provider interaction, Windows
 Linux runtime checks, representative process-memory measurements, complete-document
 PDF printing in step 8, and final release checks in step 9. This step adds no provider
 change subscriptions or folder-wide PDF text extraction.
+
+## Landscape bookmarks correction — 25 October 2026
+
+PDF.js defines the global `--outline-width: 2px` for annotation strokes. The
+application's former variable of the same name inherited that value when no
+saved sidebar width existed, collapsing the landscape bookmark grid column.
+Portrait's fixed 240px overlay did not use that grid value and remained usable.
+
+Application layout now uses `--mdview-outline-width` and `--mdview-sidebar-width`
+throughout CSS, width restoration and resizing. Persisted `outlineWidth` and
+`sidebarWidth` JSON fields are unchanged. PDF.js retains its own stroke variable.
+
+Native macOS WebKit reproduced the original 1180×820 failure (sidebar extended
+to x=1201). After correction, 24 cases pass: 1024×768, 1180×820 and 1366×1024
+landscape, 768×1024 and 820×1180 portrait, return to landscape, left sidebar
+open/closed, and repeated bookmark toggles. The bookmark panel stays 240px wide
+and inside the viewport, with no horizontal document overflow. Nineteen targeted
+unit tests and TypeScript checks pass. These layout checks use actual application
+markup and app/PDF.js styles in native WebKit, not a physical iPad runtime test.

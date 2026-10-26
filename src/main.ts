@@ -344,10 +344,6 @@ pdfFit.addEventListener("change", () => {
 });
 document.querySelector("#pdf-rotate-left")!.addEventListener("click", () => currentPdf()?.rotate(-1));
 document.querySelector("#pdf-rotate-right")!.addEventListener("click", () => currentPdf()?.rotate(1));
-new ResizeObserver(() => {
-  const height = pdfControls.getBoundingClientRect().height;
-  if (height > 0) pdfRegion.style.setProperty("--pdf-controls-height", `${height}px`);
-}).observe(pdfControls);
 document.addEventListener("keydown", event => {
   if ((event.ctrlKey || event.metaKey) && ["+", "=", "-", "0"].includes(event.key) && !pdfPassword.open && documentReady) {
     event.preventDefault();
@@ -686,10 +682,10 @@ async function initializeViewState(): Promise<void> {
   try {
     viewState = normalizeViewState(await invoke<ViewState>("load_view_state"));
     if (viewState.sidebarWidth !== null) {
-      appShell.style.setProperty("--sidebar-width", `${viewState.sidebarWidth}px`);
+      appShell.style.setProperty("--mdview-sidebar-width", `${viewState.sidebarWidth}px`);
     }
     if (viewState.outlineWidth !== null) {
-      appShell.style.setProperty("--outline-width", `${viewState.outlineWidth}px`);
+      appShell.style.setProperty("--mdview-outline-width", `${viewState.outlineWidth}px`);
     }
     if (viewState.window) {
       await appWindow.setSize(
@@ -950,7 +946,7 @@ aboutIcon.src = appIconUrl;
 attachSidebarResize({
   handle: sidebarResizeHandle,
   target: appShell,
-  cssVariable: "--sidebar-width",
+  cssVariable: "--mdview-sidebar-width",
   bounds: SIDEBAR_WIDTH_BOUNDS,
   direction: "grow-right",
   getCurrentWidth: () => sidebar.getBoundingClientRect().width,
@@ -959,7 +955,7 @@ attachSidebarResize({
 attachSidebarResize({
   handle: outlineResizeHandle,
   target: appShell,
-  cssVariable: "--outline-width",
+  cssVariable: "--mdview-outline-width",
   bounds: OUTLINE_WIDTH_BOUNDS,
   direction: "grow-left",
   getCurrentWidth: () => outlineSidebar.getBoundingClientRect().width,

@@ -1,12 +1,13 @@
 /* PDF pages retain original colors; only the surrounding shell follows the application theme. */
 .content { position: relative; }
 .content[data-renderer="pdf"] { width: 100%; padding: 0; overflow: hidden; }
-#pdf-region { position: absolute; inset: 0; background: #727781; }
+/* The toolbar occupies its own row; page scrolling uses only the remaining height. */
+#pdf-region { position: absolute; inset: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); background: #727781; }
 #pdf-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; padding: 0.35rem 0.6rem; min-height: 48px; position: relative; z-index: 2; background: #f4f6fa; color: #20252d; border-bottom: 1px solid #d1d6df; }
 #pdf-controls[hidden], #pdf-region[hidden] { display: none; }
 #pdf-controls button, #pdf-controls select { min-height: 40px; padding: 0.35rem 0.65rem; }
 #pdf-page { width: 5rem; min-height: 40px; }
-#pdf-container { position: absolute; inset: var(--pdf-controls-height, 56px) 0 0; overflow: auto; touch-action: pan-x pan-y; outline-offset: -3px; }
+#pdf-container { position: absolute; grid-row: 2 / 3; grid-column: 1 / 2; inset: 0; overflow: auto; touch-action: pan-x pan-y; outline-offset: -3px; }
 #pdf-container .pdfViewer { padding: 12px 0; }
 #pdf-container .pdfViewer .page { background: white; color-scheme: light; }
 #pdf-container .fileAttachmentAnnotation { pointer-events: none; }
@@ -31,7 +32,6 @@
 @media (max-width: 600px) {
   #pdf-controls { gap: 0.2rem; }
   #pdf-controls button { padding: 0.3rem 0.4rem; }
-  #pdf-container { top: var(--pdf-controls-height, 56px); }
 }
 @media print {
   #pdf-region, #pdf-controls, #pdf-password, .document-status { display: none !important; }

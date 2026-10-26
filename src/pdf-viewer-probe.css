@@ -1,4 +1,4 @@
 body { margin: 0; background: #676c74; }
-#report { height: 200px; overflow: auto; padding: 12px; background: #fff; margin: 0; }
-#pdf-container { position: absolute; inset: 250px 0 0; overflow: auto; }
+#report { height: 200px; box-sizing: border-box; overflow: auto; padding: 12px; background: #fff; margin: 0; }
+#pdf-region { inset: 200px 0 0; }
 #pdf-container .pdfViewer { padding: 10px 0; }

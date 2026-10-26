@@ -51,7 +51,7 @@ describe("attachSidebarResize", () => {
     attachSidebarResize({
       handle,
       target,
-      cssVariable: "--sidebar-width",
+      cssVariable: "--mdview-sidebar-width",
       bounds: { min: 180, max: 480 },
       direction: "grow-right",
       getCurrentWidth: () => 260,
@@ -60,12 +60,12 @@ describe("attachSidebarResize", () => {
 
     handle.dispatchEvent(new MouseEvent("pointerdown", { clientX: 100 }));
     handle.dispatchEvent(new MouseEvent("pointermove", { clientX: 160 }));
-    expect(target.style.getPropertyValue("--sidebar-width")).toBe("320px");
+    expect(target.style.getPropertyValue("--mdview-sidebar-width")).toBe("320px");
 
     handle.dispatchEvent(new MouseEvent("pointerup", { clientX: 160 }));
     expect(onResizeEnd).toHaveBeenCalledOnce();
     expect(onResizeEnd).toHaveBeenCalledWith(320);
     handle.dispatchEvent(new MouseEvent("pointermove", { clientX: 400 }));
-    expect(target.style.getPropertyValue("--sidebar-width")).toBe("320px");
+    expect(target.style.getPropertyValue("--mdview-sidebar-width")).toBe("320px");
   });
 });

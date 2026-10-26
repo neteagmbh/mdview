@@ -3,8 +3,10 @@
 <head><meta charset="UTF-8"><title>mdview integrated PDF viewer probe</title></head>
 <body>
   <pre id="report" role="status">Running integrated viewer checks…</pre>
-  <div id="pdf-controls" aria-label="PDF controls theme check">PDF viewer validation</div>
-  <div id="pdf-container" tabindex="0"><div id="probe-pages" class="pdfViewer"></div></div>
+  <section id="pdf-region">
+    <div id="pdf-controls" aria-label="PDF controls theme check">PDF viewer validation</div>
+    <div id="pdf-container" tabindex="0"><div id="probe-pages" class="pdfViewer"></div></div>
+  </section>
   <script type="module" src="/src/pdf-viewer-probe.ts"></script>
 </body>
 </html>

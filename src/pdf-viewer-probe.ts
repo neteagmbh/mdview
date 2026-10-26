@@ -59,6 +59,20 @@ async function run(): Promise<void> {
       report.positionRestored = true;
     }
     await until(() => Boolean(pages.querySelector(".textLayer span")?.textContent), "selectable text");
+    if (cycle === 0) {
+      const controls = document.querySelector<HTMLElement>("#pdf-controls")!;
+      for (const minHeight of ["120px", ""]) {
+        controls.style.minHeight = minHeight;
+        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+        const viewport = container.getBoundingClientRect();
+        if (Math.abs(viewport.top - controls.getBoundingClientRect().bottom) > 1
+          || Math.abs(viewport.bottom - innerHeight) > 1
+          || document.documentElement.scrollHeight > innerHeight + 1) {
+          throw new Error("PDF toolbar and page scroller exceed the viewport height budget.");
+        }
+      }
+      report.viewportHeightBudget = true;
+    }
     const span = pages.querySelector(".textLayer span")!;
     const range = document.createRange();
     range.selectNodeContents(span);

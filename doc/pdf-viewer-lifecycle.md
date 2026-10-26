@@ -80,3 +80,20 @@ Pending release validation: integrated-viewer interaction on iOS 18 and physical
 Windows/WebView2 and Linux/WebKitGTK runtime checks, representative large/scanned PDFs,
 and process-memory plateaus over longer repeated document switches. The step-2 platform
 prototype results do not establish these step-5 integration results.
+
+## Viewport height correction — 25 October 2026
+
+The shell and its panes share a dynamic viewport height (`100dvh`, with a
+`100vh` fallback) so iPad viewport changes do not leave a taller outer document.
+The PDF region uses two grid rows: the toolbar's actual height and the remaining
+space for page scrolling. The PDF.js scroll container remains absolutely positioned
+within that second row, as required by PDF.js. The former JavaScript toolbar-height
+observer, default offset and duplicate mobile offset have been removed.
+
+Native macOS WebKit passed 24 iPad-sized layout cases with 5000px of page content,
+wrapped controls, portrait/landscape dimensions and sidebar toggles: toolbar bottom
+equals scroller top, scroller bottom fits the viewport, and no outer document height
+overflow occurs. The production renderer probe now uses the same grid and passes
+six cycles, including a 120px/default toolbar-height change, search, text selection,
+restoration and cleanup. Twenty-three focused unit tests, TypeScript and the
+production frontend build pass. Physical iPad confirmation remains pending.
