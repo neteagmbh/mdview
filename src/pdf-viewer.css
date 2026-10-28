@@ -7,7 +7,7 @@
 #pdf-controls[hidden], #pdf-region[hidden] { display: none; }
 #pdf-controls button, #pdf-controls select { min-height: 40px; padding: 0.35rem 0.65rem; }
 #pdf-page { width: 5rem; min-height: 40px; }
-#pdf-container { position: absolute; grid-row: 2 / 3; grid-column: 1 / 2; inset: 0; overflow: auto; touch-action: pan-x pan-y; outline-offset: -3px; }
+#pdf-container { position: absolute; grid-row: 2 / 3; grid-column: 1 / 2; inset: 0; overflow: auto; overscroll-behavior: none; touch-action: pan-x pan-y; outline-offset: -3px; }
 #pdf-container .pdfViewer { padding: 12px 0; }
 #pdf-container .pdfViewer .page { background: white; color-scheme: light; }
 #pdf-container .fileAttachmentAnnotation { pointer-events: none; }

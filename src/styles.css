@@ -23,8 +23,17 @@
 html,
 body {
   min-width: 320px;
-  min-height: var(--mdview-viewport-height);
+  height: var(--mdview-viewport-height);
+  /* Only the inner panes scroll; keep macOS boundary gestures from bouncing the shell. */
+  overflow: hidden;
+  overscroll-behavior: none;
   margin: 0;
+}
+
+.content,
+.app-sidebar,
+.outline-sidebar {
+  overscroll-behavior: none;
 }
 
 body {
@@ -1336,6 +1345,9 @@ mark.search-hit-current {
 
   :root,
   body {
+    height: auto;
+    min-height: 0;
+    overflow: visible;
     color-scheme: light;
     background: #fff;
   }
