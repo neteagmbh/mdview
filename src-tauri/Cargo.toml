@@ -28,7 +28,8 @@ tauri-plugin-single-instance = "2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 webview2-com = "0.39.1"
-windows = { version = "0.61", features = [] }
+# Match webview2-com so its COM interfaces share the same windows::core::Interface trait.
+windows = { version = "0.62", features = [] }
 
 [target.'cfg(target_os = "ios")'.dependencies]
 tauri-plugin-documents = { path = "plugins/documents" }
