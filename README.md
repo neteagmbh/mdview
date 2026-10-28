@@ -114,6 +114,10 @@ npm run tauri build
 
 Tauri applications are normally built on the operating system they target.
 
+Pushing a tag such as `release/0.2.0` runs the GitHub Actions build for Linux and
+Windows. Download the packaged bundles from the workflow run's `mdview-linux`
+and `mdview-windows` artifacts.
+
 File associations are included in packaged builds. Install the desktop bundle or
 iOS app to expose mdview in the OS document-opening menus. Incoming files open in
 the current viewer, including when they launch the app; an incoming startup file
